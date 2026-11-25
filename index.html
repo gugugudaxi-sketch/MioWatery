@@ -10,6 +10,7 @@
 <meta name="theme-color" id="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Mio水汪汪</title>
 <style>
 :root{color-scheme:light;--bg:#fff;--p:#f3f4f5;--ink:#0f1419;--sub:#6b7480;--line:#eaecee;--ai:#eceef0;--me:#111;--me-ink:#fff;--fld:#fff;--av:#e3e5e8;--t2:#333;--err:#d93636;--shade:rgba(0,0,0,.35);
@@ -5382,6 +5383,43 @@ const R={iff:()=>iffRender(),mcp:()=>mcpRender(),preset:()=>prRender(),offline:(
 function go(v,push=true){if(v==='chat'&&!P(cur))return;if(v==='chat')S.cfg.lastChat=cur;if(v==='settings'&&stack[stack.length-1]!=='settings')settingsPage='main';if(v!=='chat')$('#ucss').textContent='';if(v!=='offline'){const oe=document.getElementById('ofcss');if(oe)oe.textContent=''}
   $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));if(push)stack.push(v);R[v]()}
 function back(){if(stack[stack.length-1]==='cset'&&csetPage==='memory'){csetPage='main';rCset();return}if(stack[stack.length-1]==='settings'&&settingsPage!=='main'){settingsPage='main';rSettings();return}stack.pop();go(stack[stack.length-1]||'home',false)}
+// 从左边缘向右滑，复用页面现有的返回逻辑。
+(function setupEdgeBack(){
+ const edgeWidth=44, minDistance=64;
+ const controls='input,textarea,select,[contenteditable],button,a,canvas,[data-noswipe]';
+ let start=null;
+ document.addEventListener('touchstart',e=>{
+  start=null;
+  if(e.touches.length!==1||window.getSelection()?.toString()||e.target.closest(controls))return;
+  const view=e.target.closest('.view.on'),touch=e.touches[0];
+  if(!view||view.id==='v-home'||stack.length<2||(view.id==='v-chat'&&multiSelectMode))return;
+  const edge=touch.clientX-view.getBoundingClientRect().left;
+  if(edge<0||edge>edgeWidth)return;
+  start={view,x:touch.clientX,y:touch.clientY,id:touch.identifier,locked:false};
+ },{passive:true});
+ document.addEventListener('touchmove',e=>{
+  if(!start)return;
+  if(e.touches.length!==1){start=null;return}
+  const touch=e.touches[0],dx=touch.clientX-start.x,dy=touch.clientY-start.y;
+  if(!start.locked&&Math.max(Math.abs(dx),Math.abs(dy))>=10){
+   if(dx<=Math.abs(dy)*1.4){start=null;return}
+   start.locked=true;
+   if(start.view.id==='v-chat'&&msgPressTimer){clearTimeout(msgPressTimer);msgPressTimer=null}
+  }
+ },{passive:true});
+ document.addEventListener('touchend',e=>{
+  const swipe=start;start=null;
+  if(!swipe?.locked||!swipe.view.classList.contains('on'))return;
+  const touch=e.changedTouches[0];
+  if(!touch||touch.identifier!==swipe.id)return;
+  const dx=touch.clientX-swipe.x,dy=touch.clientY-swipe.y;
+  if(dx>=minDistance&&dx>Math.abs(dy)*1.4){
+   if(e.cancelable)e.preventDefault();
+   back();
+  }
+ },{passive:false});
+ document.addEventListener('touchcancel',()=>{start=null},{passive:true});
+})();
 document.addEventListener('click',e=>{
   const q=s=>e.target.closest(s);let x;
   const _path=e.composedPath?e.composedPath():[];const _in=sel=>q(sel)||_path.some(n=>n&&n.matches&&n.matches(sel));
@@ -5475,12 +5513,48 @@ function p3EditChat(){if(!S.desktop)S.desktop={};const d=S.desktop,bubbles=[...$
 $('#page3-chat')?.addEventListener('click',p3EditChat);$('#page3-chat')?.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();p3EditChat()}});
 $$('#home-page3 [data-p3-decor],#home-page4 [data-p3-decor]').forEach(el=>el.addEventListener('click',e=>{e.preventDefault();if(el.dataset.p3Decor==='MCP')return;toast(el.dataset.p3Decor+'：装饰性预览图标，功能暂未接入')}));
 
-(function(){const home=$('#v-home'),tr=$('#home-track'),pg=$('#home-pager');let sx=0,sy=0,st=0,mode=0,dx=0,moved=false;
-home.addEventListener('touchstart',e=>{if(e.touches.length!==1){mode=0;return}sx=e.touches[0].clientX;sy=e.touches[0].clientY;st=Date.now();mode=1;dx=0},{passive:true});
-home.addEventListener('touchmove',e=>{if(!mode||window.__homeDrag)return;const p=e.touches[0],mx=p.clientX-sx,my=p.clientY-sy;if(mode===1){if(Math.abs(mx)<8&&Math.abs(my)<8)return;mode=Math.abs(mx)>Math.abs(my)*1.2?2:3}if(mode!==2)return;dx=mx;if((homePage===0&&dx>0)||(homePage===3&&dx<0))dx*=.3;tr.classList.remove('anim');tr.style.transform=`translate3d(calc(${-homePage*25}% + ${dx}px),0,0)`},{passive:true});
-const end=()=>{if(mode!==2||window.__homeDrag){mode=0;return}mode=0;const w=pg.offsetWidth||360,v=dx/Math.max(1,Date.now()-st);let n=homePage;if(Math.abs(dx)>w*.22||(Math.abs(v)>.4&&Math.abs(dx)>24))n+=dx<0?1:-1;moved=true;setTimeout(()=>{moved=false},350);setHomePage(n,true)};
-home.addEventListener('touchend',end,{passive:true});home.addEventListener('touchcancel',end,{passive:true});
-home.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation()}},true)})();
+(function setupHomeSwipe(){
+ const home=$('#v-home'),tr=$('#home-track'),pg=$('#home-pager');
+ let swipe=null,suppressClickUntil=0;
+ function cancel(){
+  if(swipe?.mode==='horizontal'&&!window.__homeDrag)setHomePage(homePage,true);
+  swipe=null;
+ }
+ home.addEventListener('touchstart',e=>{
+  cancel();
+  if(e.touches.length!==1||desktopEditing||window.__homeDrag||
+     e.target.closest('input,textarea,select,[contenteditable],[data-noswipe]'))return;
+  const t=e.touches[0];
+  swipe={x:t.clientX,y:t.clientY,id:t.identifier,time:Date.now(),dx:0,mode:''};
+ },{passive:true});
+ home.addEventListener('touchmove',e=>{
+  if(!swipe)return;
+  if(e.touches.length!==1||window.__homeDrag||desktopEditing){cancel();return}
+  const t=e.touches[0],dx=t.clientX-swipe.x,dy=t.clientY-swipe.y;
+  if(!swipe.mode){
+   if(Math.max(Math.abs(dx),Math.abs(dy))<8)return;
+   swipe.mode=Math.abs(dx)>Math.abs(dy)*1.2?'horizontal':'vertical';
+  }
+  if(swipe.mode!=='horizontal')return;
+  swipe.dx=dx;
+  const offset=(homePage===0&&dx>0)||(homePage===3&&dx<0)?dx*.3:dx;
+  tr.classList.remove('anim');
+  tr.style.transform=`translate3d(calc(${-homePage*25}% + ${offset}px),0,0)`;
+ },{passive:true});
+ home.addEventListener('touchend',e=>{
+  const current=swipe;swipe=null;
+  if(current?.mode!=='horizontal'||window.__homeDrag)return;
+  const t=e.changedTouches[0],width=pg.offsetWidth||360;
+  const dx=current.dx,speed=Math.abs(dx)/Math.max(1,Date.now()-current.time);
+  const turn=t?.identifier===current.id&&(Math.abs(dx)>width*.22||(speed>.4&&Math.abs(dx)>24));
+  suppressClickUntil=Date.now()+350;
+  setHomePage(homePage+(turn?(dx<0?1:-1):0),true);
+ },{passive:true});
+ home.addEventListener('touchcancel',cancel,{passive:true});
+ home.addEventListener('click',e=>{
+  if(Date.now()<suppressClickUntil){e.preventDefault();e.stopPropagation()}
+ },true);
+})();
 (function(){const D='Tears are the smallest sea.',bar=$('#p4-bar');if(!bar)return;
 function edit(){const old=document.getElementById('p4-editor');if(old)old.remove();
 const ov=document.createElement('div');ov.id='p4-editor';ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(15,18,22,.38);display:flex;align-items:center;justify-content:center;padding:22px;box-sizing:border-box;';
@@ -7294,7 +7368,7 @@ function notifyMsg(pid,m){
 }
 async function xsjSysNotify(p,txt,pid){
  if(!('Notification' in window)||Notification.permission!=='granted')return;
- const o={body:txt,tag:'msg-'+pid,renotify:true,vibrate:[120,60,120],timestamp:Date.now(),data:{pid}};
+ const o={body:txt,tag:'msg-'+pid,renotify:true,icon:'icon-192.png',vibrate:[120,60,120],timestamp:Date.now(),data:{pid}};
  const a=p&&p.avatar;if(typeof a==='string'&&(/^https?:/.test(a)||(/^data:image\//.test(a)&&a.length<120000)))o.icon=a;
  try{const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();if(reg&&reg.showNotification){await reg.showNotification(p.name,o);return}}catch(e){}
  try{const n=new Notification(p.name,o);n.onclick=()=>{window.focus();if(pid&&P(pid)){cur=pid;go('chat')}n.close()}}catch(e){}
