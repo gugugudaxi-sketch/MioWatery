@@ -7597,13 +7597,45 @@ async function xsjNotificationWorker(){
  });
  return null;
 }
+const XSJ_NOTIFICATION_ICON='icon-192.png?v=1eee1f6';
+function xsjNotificationIcon(avatar){
+ if(typeof avatar!=='string')return XSJ_NOTIFICATION_ICON;
+ const src=avatar.trim();
+ if(/^https:\/\//i.test(src))return src;
+ if(!/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(src))return XSJ_NOTIFICATION_ICON;
+ if(src.length<=64000)return src;
+ // Large imported avatars are resized on the device before being passed to the browser.
+ return new Promise(resolve=>{
+  const img=new Image();
+  const finish=icon=>{clearTimeout(timer);img.onload=img.onerror=null;resolve(icon)};
+  const timer=setTimeout(()=>finish(XSJ_NOTIFICATION_ICON),1500);
+  img.onerror=()=>finish(XSJ_NOTIFICATION_ICON);
+  img.onload=()=>{
+   try{
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+    const size=Math.min(img.naturalWidth,img.naturalHeight);
+    canvas.width=canvas.height=96;
+    ctx.drawImage(img,(img.naturalWidth-size)/2,(img.naturalHeight-size)/2,size,size,0,0,96,96);
+    finish(canvas.toDataURL('image/png'))
+   }catch(e){finish(XSJ_NOTIFICATION_ICON)}
+  };
+  img.src=src;
+ });
+}
 async function xsjSysNotify(p,txt,pid,target={},title=p.name){
  if(!('Notification' in window)||Notification.permission!=='granted')return false;
- const o={body:txt,tag:(target.view==='offline'?'offline-'+(target.profile||'')+'-':'msg-')+pid,renotify:true,icon:'icon-192.png?v=1eee1f6',vibrate:[120,60,120],timestamp:Date.now(),data:{pid,...target}};
- const a=p&&p.avatar;if(typeof a==='string'&&/^https:\/\//.test(a))o.icon=a;
+ const icon=await xsjNotificationIcon(p.avatar);
+ const o={body:txt,tag:(target.view==='offline'?'offline-'+(target.profile||'')+'-':'msg-')+pid,renotify:true,icon,vibrate:[120,60,120],timestamp:Date.now(),data:{pid,...target}};
  try{
   const reg=await xsjNotificationWorker();
-  if(reg){await reg.showNotification(title,o);return true}
+  if(reg){
+   try{await reg.showNotification(title,o)}
+   catch(e){
+    if(o.icon===XSJ_NOTIFICATION_ICON)throw e;
+    o.icon=XSJ_NOTIFICATION_ICON;await reg.showNotification(title,o)
+   }
+   return true
+  }
  }catch(e){console.warn('Service Worker 通知失败',e)}
  try{const n=new Notification(title,o);n.onclick=()=>{window.focus();if(pid)openNotifiedChat(pid,target);n.close()};return true}
  catch(e){console.warn('系统通知失败',e);return false}
