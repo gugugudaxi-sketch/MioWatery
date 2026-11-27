@@ -3123,8 +3123,8 @@ setTimeout(function(){finish(false)},7600);
     <div class="cap">悬浮球</div><div class="card"><label class="chk" style="margin-top:0"><input type="checkbox" id="c-fball">显示悬浮球</label><p class="note" style="margin-top:8px">开启后屏幕上会出现可拖动的小圆球，轻点可快速切换 API 预设，或一键回到主画面。</p><div class="fb-img"><span id="c-fball-prev" class="fb-prev"></span><div class="fb-act"><button class="btn fill" id="c-fball-img" type="button">更换图片</button><button class="btn" id="c-fball-img-clear" type="button">恢复默认</button></div></div><p class="note" style="margin-top:8px">支持相册图片、图片链接和 GIF 动图（GIF 不超过 3MB）。透明背景的 PNG 或 GIF 会按图片本身的形状显示，不带底圈。</p><label class="chk"><input type="checkbox" id="c-fball-round">将图片裁成圆形</label><div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>悬浮球大小</span><span id="c-fball-size-v">46px</span></div><input type="range" id="c-fball-size" min="28" max="96" step="1" style="width:100%;margin-top:8px"></div><label class="chk" style="margin-top:14px"><input type="checkbox" id="c-lyrwin">播放音乐时显示歌词悬浮窗</label><p class="note" style="margin-top:8px">听歌时退出音乐 App，会出现一个可上下拖动的歌词悬浮窗；左滑或右滑可收起到屏幕边缘，点边缘小标签再展开。</p></div>
   </div>
   <div class="body settings-sub" id="settings-system" style="display:none">
-    <div class="cap">后台保活</div><div class="card"><label class="chk"><input type="checkbox" id="c-keepalive">开启后台保活（静音播放，灵动岛和锁屏会显示播放卡片）</label><p class="note">开启后轻点屏幕，应用会循环播放静音音频，降低被系统暂停的概率。角色的新消息会显示在播放卡片上。音乐播放优先，iOS 仍可能暂停应用。</p></div>
-    <div class="cap">消息通知</div><div class="card"><label class="chk"><input type="checkbox" id="c-notify">角色回复时显示横幅</label><button class="btn" id="notify-perm" type="button">开启系统通知</button><button class="btn" id="notify-test" type="button">5 秒后发送测试通知</button><p class="note" id="notify-status"></p></div>
+    <div class="cap">后台保活</div><div class="card"><label class="chk"><input type="checkbox" id="c-keepalive">开启后台保活（静音播放，灵动岛和锁屏会显示播放卡片）</label><p class="note">开启后轻点屏幕即可尝试启动静音保活。音乐播放时会暂停保活，停播后恢复。浏览器或系统仍可能挂起网页。</p></div>
+    <div class="cap">消息通知</div><div class="card"><label class="chk"><input type="checkbox" id="c-notify">角色回复时提醒（前台横幅、后台系统通知）</label><button class="btn" id="notify-perm" type="button">开启系统通知</button><button class="btn" id="notify-now" type="button">立即测试通知</button><button class="btn" id="notify-test" type="button">5 秒后发送测试通知</button><p class="note" id="notify-status" aria-live="polite"></p><p class="note" id="notify-result" aria-live="polite"></p></div>
   </div>
   <div class="body settings-sub" id="settings-appearance" style="display:none">
     <div class="cap">外观</div><div class="seg" id="c-theme"><button data-v="light">白天</button><button data-v="dark">夜间</button><button data-v="auto">跟随系统</button></div>
@@ -7463,26 +7463,44 @@ function syncChrome(){
 ['pageshow','visibilitychange'].forEach(n=>addEventListener(n,()=>requestAnimationFrame(syncChrome)));
 try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',syncChrome)}catch(e){}
 syncChrome();
-let kaA=null,kaArt_='',kaHook=false;
+let kaA=null,kaUrl='',kaArt_='',kaHook=false,kaStarting=null;
 function kaWav(){const sr=8000,n=sr*2,buf=new ArrayBuffer(44+n),v=new DataView(buf),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);for(let i=0;i<n;i++)v.setUint8(44+i,128+(i%400<2?1:0));return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}))}
 function kaArtMake(){try{const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle='#111';x.fillRect(0,0,256,256);x.fillStyle='#fff';x.font='bold 64px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('Mio',128,128);return c.toDataURL('image/png')}catch(e){return''}}
 function kaMeta(title,artist){try{if(!('mediaSession' in navigator))return;if(typeof MS!=='undefined'&&MS&&MS.playing)return;navigator.mediaSession.metadata=new MediaMetadata({title:title||'Mio水汪汪',artist:artist||'保持在线中',album:'Mio水汪汪',artwork:kaArt_?[{src:kaArt_,sizes:'256x256',type:'image/png'}]:[]});navigator.mediaSession.playbackState='playing'}catch(e){}}
 async function keepAlive(on){
- if(on){
-  try{
-   if(!kaA){kaA=new Audio(kaWav());kaA.loop=true;kaA.preload='auto';kaA.setAttribute('playsinline','')}
-   if(!kaArt_)kaArt_=kaArtMake();
-   if(kaA.paused)await kaA.play();
-   kaMeta();
-   if(!kaHook){kaHook=true;try{MSA.addEventListener('pause',()=>setTimeout(()=>{if(S.cfg.keepAlive&&kaA&&!(MS&&MS.playing)){if(kaA.paused)kaA.play().catch(()=>{});kaMeta()}},400))}catch(e){}}
-  }catch(e){}
- }else{
-  try{kaA&&kaA.pause()}catch(e){}kaA=null;
-  try{if(!(typeof MS!=='undefined'&&MS&&MS.playing)&&'mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none'}}catch(e){}
+ const musicPlaying=typeof MS!=='undefined'&&typeof MSA!=='undefined'&&!MSA.paused;
+ if(!on){
+  const audio=kaA;kaA=null;kaStarting=null;
+  if(audio){audio.pause();audio.removeAttribute('src');audio.load()}
+  if(kaUrl){URL.revokeObjectURL(kaUrl);kaUrl=''}
+  try{if(!musicPlaying&&'mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none'}}catch(e){}
+  return 'off';
  }
+ if(!kaHook&&typeof MSA!=='undefined'){
+  kaHook=true;
+  MSA.addEventListener('play',()=>kaA?.pause());
+  for(const event of ['pause','ended','error'])MSA.addEventListener(event,()=>{if(S.cfg.keepAlive)keepAlive(true)});
+ }
+ if(musicPlaying){kaA?.pause();return 'music'}
+ if(!kaA){
+  kaUrl=kaWav();kaA=new Audio(kaUrl);kaA.loop=true;kaA.preload='auto';kaA.setAttribute('playsinline','');
+ }
+ if(!kaArt_)kaArt_=kaArtMake();
+ const audio=kaA;
+ if(audio.paused&&!kaStarting){
+  const job=audio.play().then(()=>true,()=>false);
+  kaStarting=job;
+  job.then(()=>{if(kaStarting===job)kaStarting=null});
+ }
+ if(kaStarting)await kaStarting;
+ if(kaA!==audio||!S.cfg.keepAlive)return 'off';
+ if(typeof MSA!=='undefined'&&!MSA.paused){audio.pause();return 'music'}
+ if(audio.paused)return 'blocked';
+ kaMeta();return 'running';
 }
 document.addEventListener('visibilitychange',()=>{if(S.cfg.keepAlive&&!document.hidden)keepAlive(true)});
-document.addEventListener('pointerdown',()=>{if(S.cfg.keepAlive&&(!kaA||kaA.paused))keepAlive(true)},{passive:true});
+for(const event of ['pointerup','keydown'])document.addEventListener(event,()=>{if(S.cfg.keepAlive&&(!kaA||kaA.paused))keepAlive(true)},{passive:true});
+
 let unreadN=0;
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){unreadN=0;try{const r=navigator.clearAppBadge&&navigator.clearAppBadge();r&&r.catch&&r.catch(()=>{})}catch(e){}document.title='Mio水汪汪'}});
 function notifyMsg(pid,m){
@@ -7495,18 +7513,32 @@ function notifyMsg(pid,m){
  b.onclick=()=>{b.classList.remove('on');cur=pid;go('chat')};
  requestAnimationFrame(()=>b.classList.add('on'));clearTimeout(notifyMsg.t);notifyMsg.t=setTimeout(()=>b.classList.remove('on'),4800);
 }
+let notificationRegistration;
+async function xsjNotificationWorker(){
+ const reg=await notificationRegistration;
+ if(reg?.active?.state==='activated')return reg;
+ if(reg)return new Promise(resolve=>{
+  const timer=setTimeout(()=>resolve(null),3500);
+  navigator.serviceWorker.ready.then(ready=>{clearTimeout(timer);resolve(ready)},()=>{clearTimeout(timer);resolve(null)});
+ });
+ return null;
+}
 async function xsjSysNotify(p,txt,pid){
- if(!('Notification' in window)||Notification.permission!=='granted')return;
+ if(!('Notification' in window)||Notification.permission!=='granted')return false;
  const o={body:txt,tag:'msg-'+pid,renotify:true,icon:'icon-192.png?v=1eee1f6',vibrate:[120,60,120],timestamp:Date.now(),data:{pid}};
- const a=p&&p.avatar;if(typeof a==='string'&&(/^https?:/.test(a)||(/^data:image\//.test(a)&&a.length<120000)))o.icon=a;
- try{const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();if(reg&&reg.showNotification){await reg.showNotification(p.name,o);return}}catch(e){}
- try{const n=new Notification(p.name,o);n.onclick=()=>{window.focus();if(pid&&P(pid)){cur=pid;go('chat')}n.close()}}catch(e){}
+ const a=p&&p.avatar;if(typeof a==='string'&&/^https:\/\//.test(a))o.icon=a;
+ try{
+  const reg=await xsjNotificationWorker();
+  if(reg){await reg.showNotification(p.name,o);return true}
+ }catch(e){console.warn('Service Worker 通知失败',e)}
+ try{const n=new Notification(p.name,o);n.onclick=()=>{window.focus();if(pid&&P(pid)){cur=pid;go('chat')}n.close()};return true}
+ catch(e){console.warn('系统通知失败',e);return false}
 }
 window.xsjSysNotify=xsjSysNotify;
-try{if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
- navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});
+if('serviceWorker' in navigator&&window.isSecureContext){
+ notificationRegistration=navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(e=>{console.warn('通知后台服务注册失败',e);return null});
  navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};if(d.type==='open-chat'&&d.pid&&P(d.pid)){cur=d.pid;go('chat')}});
-}}catch(e){}
+}
 try{const q=new URLSearchParams(location.search).get('openChat');if(q)setTimeout(()=>{try{if(P(q)){cur=q;go('chat')}history.replaceState(null,'',location.pathname)}catch(e){}},1200)}catch(e){}
 {const g0=gen;gen=async function(){const pid=cur,n0=(S.chats[pid]||[]).length;await g0.apply(this,arguments);const h=S.chats[pid]||[],m=h[h.length-1];if(h.length>n0&&m&&m.role==='assistant'){notifyMsg(pid,m);try{dyAutoNote(pid)}catch(e){}}}}
 /* ===== v9.57 主动发消息 / 接着说 ===== */
@@ -7943,12 +7975,60 @@ mount();
 })();
 
 function sysInit(){
- const ka=$('#c-keepalive'),nt=$('#c-notify'),st=$('#notify-status');if(!ka)return;
- ka.checked=!!S.cfg.keepAlive;ka.onchange=()=>{S.cfg.keepAlive=ka.checked;save();keepAlive(ka.checked)};
+ const ka=$('#c-keepalive'),nt=$('#c-notify'),st=$('#notify-status'),result=$('#notify-result');
+ if(!ka)return;
+ const show=async()=>{
+  const permission='Notification' in window?Notification.permission:'unsupported';
+  const worker=await xsjNotificationWorker();
+  st.textContent='系统通知权限：'+({granted:'已允许',denied:'已拒绝，可在浏览器或系统设置修改',default:'未设置',unsupported:'当前浏览器不支持'})[permission]+'。后台服务：'+(worker?'已就绪':'不可用或尚未启动')+'。';
+ };
+ const permit=async()=>{
+  if(!('Notification' in window)){await show();return false}
+  if(Notification.permission==='default'){try{await Notification.requestPermission()}catch(e){}}
+  void show();
+  return Notification.permission==='granted';
+ };
+ ka.checked=!!S.cfg.keepAlive;
+ ka.onchange=async()=>{
+  S.cfg.keepAlive=ka.checked;save();
+  const state=await keepAlive(ka.checked);
+  if(ka.checked!==!!S.cfg.keepAlive)return;
+  result.textContent=({off:'保活已关闭',music:'正在播放音乐，保活会在音乐停播后恢复',running:'静音保活已启动',blocked:'浏览器暂未允许保活播放，再点一下页面可重试'})[state];
+ };
  nt.checked=S.cfg.notifyPopup!==false;nt.onchange=()=>{S.cfg.notifyPopup=nt.checked;save()};
- const show=()=>{st.textContent='系统通知权限：'+(('Notification' in window)?({granted:'已允许',denied:'已拒绝（需在系统设置里改）',default:'未设置'})[Notification.permission]:'当前浏览器不支持')+'。iOS 需先「添加到主屏幕」，且不保证后台一定送达。';try{navigator.serviceWorker.getRegistration().then(r=>{st.textContent+=' 后台服务：'+(r?'已就绪':'未注册（需 https 且已上传 sw.js）')}).catch(()=>{st.textContent+=' 后台服务：不可用（需要 https）'})}catch(e){st.textContent+=' 后台服务：不支持'}};show();
- $('#notify-perm').onclick=async()=>{if(!('Notification' in window))return toast('当前浏览器不支持系统通知');try{await Notification.requestPermission()}catch(e){}show()};
- const tb=$('#notify-test');if(tb)tb.onclick=async()=>{if(!('Notification' in window))return toast('当前浏览器不支持系统通知');if(Notification.permission!=='granted'){try{await Notification.requestPermission()}catch(e){}show()}if(Notification.permission!=='granted')return toast('还没有通知权限');toast('5 秒后发送，请现在切到后台或锁屏');setTimeout(()=>xsjSysNotify({name:'Mio水汪汪',avatar:''},'这是一条测试通知，点它回到小手机',''),5000)};
+ $('#notify-perm').onclick=async()=>{result.textContent=await permit()?'系统通知权限已允许':'系统通知尚未获准'};
+ const late=$('#notify-test');
+ const test=async delay=>{
+  if(!await permit()){result.textContent='请先允许系统通知';return}
+  if(!delay){
+   const ok=await xsjSysNotify({name:'Mio水汪汪'},'这是一条即时测试通知','test-now');
+   result.textContent=ok?'浏览器已提交即时通知。没有横幅时可以看看通知栏。':'即时通知发送失败';
+   return;
+  }
+  const reg=await xsjNotificationWorker();
+  if(!reg){result.textContent='后台服务尚未就绪，无法安排延迟测试';return}
+  if(late.disabled)return;
+  late.disabled=true;
+  const channel=new MessageChannel();
+  result.textContent='正在安排后台测试…';
+  let timer;
+  const finish=message=>{clearTimeout(timer);channel.port1.close();late.disabled=false;result.textContent=message};
+  timer=setTimeout(()=>finish('后台服务没有应答，请刷新后再试'),3500);
+  channel.port1.onmessage=e=>{
+   if(e.data?.state==='scheduled'){
+    clearTimeout(timer);
+    timer=setTimeout(()=>finish('后台任务未返回发送结果，可能被系统暂停'),18000);
+    result.textContent='已安排，5 秒后由后台服务发送。现在可以锁屏或切到后台。';
+    return;
+   }
+   finish(e.data?.state==='sent'?'浏览器已提交延迟通知。没有横幅时可以看看通知栏。':'后台服务未能发送测试通知');
+  };
+  try{reg.active.postMessage({type:'mio-notification-test'},[channel.port2])}
+  catch(e){channel.port2.close();finish('无法把测试交给后台服务，请刷新后再试')}
+ };
+ $('#notify-now').onclick=()=>test(0);
+ late.onclick=()=>test(5000);
+ void show();
 }
 function secApiInit(){
  const g=id=>$('#'+id);if(!g('pull-sec-models'))return;
@@ -9847,7 +9927,7 @@ const DY_SYS_NOTE_OLD='你要写一张留给对方的小纸条：很短（60字�
 const DYD={font:'',size:15,lh:1.9,paper:'plain',frame:'ring',fx:'rise',noteHide:false,count:1,len:500,sys:DY_SYS_LONG,extra:'',nsys:DY_SYS_NOTE,nextra:'',nauto:0,sched:{},deco:{},devLine:'iPhone18',cmLine:'missing 12 a.m.'};
 const D=()=>{const c=S.dcfg||(S.dcfg={});for(const k in DYD)if(c[k]===undefined)c[k]=typeof DYD[k]==='object'?{}:DYD[k];return c};
 let dySwAt=0;
-const DY={owner:'me',tab:'long',busy:false},DYT=new Set(),dyLast={};
+const DY={owner:'me',tab:'long',busy:false},DYT=new Set(),dyRerolling=new Set(),dyLast={};
 const NOTE_COLORS=['#fff4a8','#ffd9d9','#d6ebff','#dcf5d4','#ecdcff'];
 const dyPlain=s=>String(s||'').replace(/\[\[(?:红|蓝)[:：](.+?)\]\]/g,'$1');
 const dyBodyOf=d=>{const ls=String(d.content||'').split('\n');let i=0;while(i<ls.length&&!ls[i].trim())i++;const n=s=>String(s).replace(/[\s\p{P}\p{S}]/gu,'').toLowerCase();if(d.title&&i<ls.length&&n(dyPlain(ls[i]))===n(d.title))i++;return ls.slice(i).join('\n')};
@@ -9858,12 +9938,12 @@ const dyList=()=>S.diaries.filter(d=>dyOwn(d)===DY.owner&&dyMine(d)&&(d.type||'l
 const dyFx=()=>D().fx==='none'?'':'dy-fx-'+D().fx;
 const dyVars=()=>{const c=D();return `--dy-font:${c.font?fontStack(c.font):'inherit'};--dy-size:${c.size}px;--dy-lh:${c.lh}`};
 function dyParse(raw){
- raw=String(raw||'').trim().replace(/^```[a-z]*\n?|```$/g,'').trim();
+ raw=String(raw||'').replace(/\r\n?/g,'\n').trim().replace(/^```[a-z]*\n?|```$/g,'').trim();
  const TL=/^\s*[#*>\s\-]*(?:标题|標題|题目|題目|title|タイトル|제목)[\s*]*[:：]\s*[*\s]*(.+?)[*\s]*$/i;
  const clean=s=>dyPlain(s).trim().replace(/^[《「『"“]+|[》」』"”]+$/g,'').trim();
  const norm=s=>String(s||'').replace(/[\s\p{P}\p{S}]/gu,'').toLowerCase();
- let tr='',trTitle='',main=raw;const ix=raw.indexOf('【译文】');
- if(ix>=0){main=raw.slice(0,ix);const l2=raw.slice(ix+4).trim().split('\n'),m2=l2.length&&l2[0].match(TL);if(m2){trTitle=clean(m2[1]);l2.shift()}tr=l2.join('\n').trim()}
+ let tr='',trTitle='',main=raw;const sep=raw.match(/^\s*(?:[#*]+\s*)?【(?:译文|譯文)】(?:\s*\*+)?[ \t]*$/m);
+ if(sep){main=raw.slice(0,sep.index);const l2=raw.slice(sep.index+sep[0].length).trim().split('\n'),m2=l2[0]?.match(TL);if(m2){trTitle=clean(m2[1]);l2.shift()}tr=l2.join('\n').trim()}
  const ls=main.split('\n');while(ls.length&&!ls[0].trim())ls.shift();
  let title='';const m=ls.length&&ls[0].match(TL);
  if(m){title=clean(m[1]);ls.shift()}
@@ -9873,17 +9953,67 @@ function dyParse(raw){
  while(ls.length&&!ls[0].trim())ls.shift();
  return{title:title.slice(0,40),content:ls.join('\n').trim(),tr,trTitle:trTitle.slice(0,60)}}
 
-function dyCtx(p,pid,n){const h=S.chats[pid]||[],recent=h.filter(m=>!m.recalled&&m.content).slice(-n).map(m=>(m.role==='user'?(S.me.name||'用户'):p.name)+'：'+String(m.content).slice(0,120)).join('\n');return{base:build(p,h)[0].content,recent:recent||'（暂无聊天记录）',now:new Date().toLocaleString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit'})}}
-async function dyGenLong(pid){
- const p=P(pid),c=D(),cfg=rolePhoneConfig();if(!p)throw new Error('角色不存在');if(!cfg.key)throw new Error('请先在设置里填写 API Key');
- const N=Math.max(1,Math.min(5,+c.count||1));let n=0;
- for(let k=0;k<N;k++){
-  const x=dyCtx(p,pid,16),prev=S.diaries.filter(d=>d.pid===pid&&(d.type||'long')==='long').slice(-4).map(d=>d.title||d.content.slice(0,16)).join('、');
-  const raw=await ask([{role:'system',content:x.base+'\n\n【日记写作】\n'+c.sys+(c.extra?'\n'+c.extra:'')},{role:'user',content:`现在是${x.now}。\n最近的聊天片段：\n${x.recent}\n${prev?'你之前写过的日记标题（避免重复）：'+prev+'\n':''}${k>0?'这是今天的第'+(k+1)+'篇，请换一个角度或话题。\n':''}请写日记，约${c.len}字。格式：第一行写“标题：……”，空一行后写正文，不要其他说明。\n【重点标记】写完后，请你自己挑 1-3 处最想强调的片段做标记：用 [[红:原句]] 标出（红色下划线，给最扎心、最重要的话），用 [[蓝:原句]] 标出（蓝色荧光笔，给想记住的、甜的或具体的细节）。标记只能包住正文里已有的文字，不能嵌套、不能跨段、不要标在标题上，每处不超过 30 字。\n【格式再强调】标题只写在第一行“标题：……”，正文第一句直接开始写日记，不要在正文里重复标题。\n【译文】如果这篇日记不是用简体中文写的（比如英文、日文、韩文等），请在正文最后另起一行写“【译文】”，其后第一行写“标题：标题的简体中文译文”，再换行给出整篇日记正文的简体中文译文：分段必须与原文逐段一致（原文几段译文就几段，每段单独一行），并且原文里用 [[红:…]]、[[蓝:…]] 标出的片段，其对应的译文也要用同样颜色的 [[红:…]] / [[蓝:…]] 包住；如果日记本来就是简体中文，不要写译文。`}],null,null,cfg);
-  const e=dyParse(raw);if(!e.content)continue;
-  S.diaries.push({id:uid(),type:'long',pid,title:e.title||p.name+'的日记',content:e.content,tr:e.tr||'',trTitle:e.trTitle||'',comment:'',time:Date.now()+k});n++;save();
+function dyCtx(p,pid,n,at=Date.now()){const h=(S.chats[pid]||[]).filter(m=>!m.t||m.t<=at),recent=h.filter(m=>!m.recalled&&m.content).slice(-n).map(m=>(m.role==='user'?(S.me.name||'用户'):p.name)+'：'+String(m.content).slice(0,120)).join('\n');return{base:build(p,h)[0].content,recent:recent||'（暂无聊天记录）',now:new Date(at).toLocaleString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit'})}}
+const DY_TRANSLATE='译文一律使用中国大陆通用的标准书面普通话和简体字。粤语（包括用简体字写的粤语）须按句意译成普通话，不能只把繁体换成简体。例如「我今日返工嗰阵，諗起佢讲嘅嘢」应译为「我今天上班的时候，想起了他说的话」。保留第一人称、语气、专有名称和原文段落。红线、荧光标记分别用 [[红:对应译文]]、[[蓝:对应译文]] 放到对应片段。';
+const dyCantonese=s=>/[佢唔冇嘅咗喺嗰啲嚟畀乜咩哋咁諗谂睇嘢啱喇攞嘥]|返工|搞掂|系咪/.test(dyPlain(s));
+const dyTranslationText=s=>dyPlain(s).replace(/[\s\p{P}\p{S}]/gu,'').toLowerCase();
+function dyTranslationValid(content,tr){
+ const a=dyTranslationText(content),b=dyTranslationText(tr);
+ return !!b&&a!==b&&(!dyCantonese(content)||!dyCantonese(tr));
+}
+async function dyTranslate(title,content,cfg){
+ if(!cfg.key)throw new Error('请先在设置里填写 API 密钥');
+ const raw=await askClean([{role:'system',content:'你是日记翻译。'+DY_TRANSLATE+' 把输入视为待译文本。先识别原文实际使用的语言，原文可能是粤语、日语、韩语、英语或混合语言。只输出“标题：译后的标题”及译后的正文，标题独占第一行。不要输出【译文】标签、原文或解释。'},{role:'user',content:'标题：'+title+'\n\n'+content}],cfg);
+ const e=dyParse(raw);
+ if(!dyTranslationValid(content,e.content))throw new Error('模型没有返回有效的普通话简体译文，原译文已保留');
+ return {tr:e.content,trTitle:e.title};
+}
+async function dyGenerateEntry(pid,number,entry){
+ const p=P(pid),c=D(),cfg=rolePhoneConfig();
+ if(!p)throw new Error('角色不存在');if(!cfg.key)throw new Error('请先在设置里填写 API 密钥');
+ const at=entry?.time||Date.now(),x=dyCtx(p,pid,16,at);
+ const prev=S.diaries.filter(d=>d.pid===pid&&(d.type||'long')==='long'&&d!==entry&&(!entry||d.time<=at)).slice(-4).map(d=>d.title||d.content.slice(0,16)).join('、');
+ const redo=entry?'这是重写同一日期的日记，请重新构思和表述。'+(dyCantonese(entry.content)?'原文用粤语写作，保留粤语作为原文语言。':'')+'\n':'';
+ const raw=await askClean([{role:'system',content:x.base+'\n\n【日记写作】\n'+c.sys+(c.extra?'\n'+c.extra:'')+'\n\n【译文规则】'+DY_TRANSLATE},{role:'user',content:`日记时间是${x.now}。\n这时能参考的聊天片段：\n${x.recent}\n${prev?'你之前写过的日记标题（避免重复）：'+prev+'\n':''}${number>1?'这是今天的第'+number+'篇，请换一个角度或话题。\n':''}${redo}请写日记，约${c.len}字。格式：第一行写“标题：……”，空一行后写正文，不要其他说明。\n【重点标记】写完后，请你自己挑 1-3 处最想强调的片段做标记：用 [[红:原句]] 标出（红色下划线，给最扎心、最重要的话），用 [[蓝:原句]] 标出（蓝色荧光笔，给想记住的、甜的或具体的细节）。标记只能包住正文里已有的文字，不能嵌套、不能跨段、不要标在标题上，每处不超过 30 字。\n【格式再强调】标题只写在第一行“标题：……”，正文第一句直接开始写日记，不要在正文里重复标题。\n【译文】若原文使用粤语、外语或非简体书面普通话，正文之后另起一行写【译文】，下一行写“标题：标题的译文”，再换行给出完整译文。原文已是标准简体书面普通话时省略译文。`}],cfg);
+ const e=dyParse(raw);if(!e.content){if(entry)throw new Error('模型没有返回日记正文');return null}
+ const title=e.title||p.name+'的日记',content=e.content;
+ let translation={tr:'',trTitle:''};
+ if(dyTranslationValid(content,e.tr))translation={tr:e.tr,trTitle:e.trTitle};
+ else if(dyCantonese(content)||e.tr){
+  try{translation=await dyTranslate(title,content,cfg)}catch(e){}
  }
- return n}
+ return {title,content,...translation};
+}
+async function dyGenLong(pid){
+ const N=Math.max(1,Math.min(5,+D().count||1));let n=0;
+ for(let k=0;k<N;k++){
+  const e=await dyGenerateEntry(pid,k+1);if(!e)continue;
+  S.diaries.push({id:uid(),type:'long',pid,...e,comment:'',time:Date.now()+k});n++;save();
+ }
+ return n;
+}
+async function dyRerollEntry(d){
+ if(dyRerolling.has(d.id)||!confirm('重新生成这篇日记？成功后会替换原文和译文，保留日期和点评。'))return;
+ const fields=['title','content','tr','trTitle'],before=Object.fromEntries(fields.map(key=>[key,d[key]]));
+ const refresh=()=>{if(stack[stack.length-1]==='diary')rDiary(1)};
+ dyRerolling.add(d.id);refresh();
+ try{
+  const next=await dyGenerateEntry(d.pid,1,d);
+  if(!S.diaries.includes(d)||fields.some(key=>d[key]!==before[key]))return toast('日记已变化，请重新打开后再试');
+  Object.assign(d,next);
+  if(!await save()){Object.assign(d,before);return}
+  toast('日记已重新生成');
+ }catch(e){toast('重新生成失败：'+e.message)}
+ finally{dyRerolling.delete(d.id);refresh()}
+}
+async function dyDeleteEntry(d){
+ const index=S.diaries.indexOf(d);
+ if(index<0)return false;
+ S.diaries.splice(index,1);
+ if(await save())return true;
+ S.diaries.splice(index,0,d);
+ return false;
+}
 async function dyGenNote(pid,topic){
  const p=P(pid),c=D(),cfg=rolePhoneConfig();if(!p)throw new Error('角色不存在');if(!cfg.key)throw new Error('请先在设置里填写 API Key');
  const x=dyCtx(p,pid,10);
@@ -9920,17 +10050,17 @@ function rDiary(still){
  if(isP)body=ppRender();
  else if(!list.length)body=`<div class="empty dy-it" style="--i:3">${isN?'留言板还是空的':'还没有日记'}</div>`;
  else if(isN)body='<div class="mb-list">'+list.map((d,i)=>{const w=who(dyOwn(d));return `<div class="mb-item dy-it${d.read&&c.noteHide?' dim':''}" style="--i:${i+2}" data-dy-note="${d.id}"><span class="av">${av(w)}</span><div class="mb-main"><div class="mb-top"><b>${esc(dyOwn(d)==='me'?(S.me.name||'我'):w.name)}</b><time>${dyDate(d.time)} ${hm(d.time)}</time><button class="dy-x" data-dy-del="${d.id}" aria-label="删除">×</button></div><p>${esc(d.content)}</p></div></div>`}).join('')+'</div>';
- else body=list.map((d,i)=>{const dt=new Date(d.time);return `<div class="dy-sw dy-it" style="--i:${i+2}"><div class="dy-sw-act"><button data-dy-edit="${d.id}">编辑</button><button class="del" data-dy-rm="${d.id}">删除</button></div><article class="dy-card" data-dy-open="${d.id}"><div class="dy-date"><b>${dt.getDate()}</b><small>${dt.getFullYear()}.${dt.getMonth()+1}</small></div><div class="dy-cb"><h3>${esc(d.title||'无标题')}</h3><p>${esc(dyPlain(dyBodyOf(d)))}</p></div></article></div>`}).join('');
+ else body=list.map((d,i)=>{const dt=new Date(d.time);return `<div class="dy-sw dy-it${isMe?'':' dy-sw-roll'}" style="--i:${i+2}"><div class="dy-sw-act"><button data-dy-edit="${d.id}">编辑</button>${isMe?'':`<button data-dy-roll="${d.id}"${dyRerolling.has(d.id)?' disabled':''}>${dyRerolling.has(d.id)?'重写中…':'重 roll'}</button>`}<button class="del" data-dy-rm="${d.id}">删除</button></div><article class="dy-card" data-dy-open="${d.id}"><div class="dy-date"><b>${dt.getDate()}</b><small>${dt.getFullYear()}.${dt.getMonth()+1}</small></div><div class="dy-cb"><h3>${esc(d.title||'无标题')}</h3><p>${esc(dyPlain(dyBodyOf(d)))}</p></div></article></div>`}).join('');
  b.innerHTML=`<div class="dy-owners dy-it">${chips}</div>${head}${seg}${act?`<div class="dy-act dy-it" style="--i:2">${act}</div>`:''}${body}`;
  const ow=b.querySelector('.dy-owners');if(ow)ow.scrollLeft=sl;
- const SWW=136;let sw=null;
+ let sw=null;
  const swClose=o=>b.querySelectorAll('.dy-card.open').forEach(x=>{if(x!==o){x.classList.remove('open');x.style.transform=''}});
- b.onpointerdown=e=>{if(e.target.closest('.dy-sw-act'))return;const cd=e.target.closest('.dy-card');swClose(cd);if(!cd)return;sw={cd,x:e.clientX,y:e.clientY,base:cd.classList.contains('open')?-SWW:0,lock:null,cur:0}};
+ b.onpointerdown=e=>{if(e.target.closest('.dy-sw-act'))return;const cd=e.target.closest('.dy-card');swClose(cd);if(!cd)return;const width=cd.previousElementSibling.offsetWidth;sw={cd,width,x:e.clientX,y:e.clientY,base:cd.classList.contains('open')?-width:0,lock:null,cur:0}};
  b.onpointermove=e=>{if(!sw)return;const dx=e.clientX-sw.x,dy=e.clientY-sw.y;
   if(!sw.lock){if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){sw.lock='h';try{b.setPointerCapture(e.pointerId)}catch(_){}}else if(Math.abs(dy)>8)sw.lock='v'}
-  if(sw.lock==='h'){const x=Math.max(-SWW,Math.min(0,sw.base+dx));sw.cur=x;sw.cd.style.transition='none';sw.cd.style.transform='translateX('+x+'px)'}};
- b.onpointerup=b.onpointercancel=()=>{if(!sw)return;const s=sw;sw=null;if(s.lock==='h'){const open=s.cur<-SWW/2;s.cd.style.transition='';s.cd.style.transform=open?'translateX('+(-SWW)+'px)':'';s.cd.classList.toggle('open',open);dySwAt=Date.now()}};
- b.onclick=e=>{const t=e.target.closest('[data-dy-owner],[data-dy-tab],[data-dy-head],[data-dy-text],[data-dy-like],[data-dy-gonote],[data-dy-save],[data-dy-new],[data-dy-gen],[data-dy-free],[data-dy-topic],[data-dy-open],[data-dy-note],[data-dy-del],[data-dy-edit],[data-dy-rm],[data-pp-add],[data-pp-view]');if(!t||t.disabled)return;const ds=t.dataset;
+  if(sw.lock==='h'){const x=Math.max(-sw.width,Math.min(0,sw.base+dx));sw.cur=x;sw.cd.style.transition='none';sw.cd.style.transform='translateX('+x+'px)'}};
+ b.onpointerup=b.onpointercancel=()=>{if(!sw)return;const s=sw;sw=null;if(s.lock==='h'){const open=s.cur<-s.width/2;s.cd.style.transition='';s.cd.style.transform=open?'translateX('+(-s.width)+'px)':'';s.cd.classList.toggle('open',open);dySwAt=Date.now()}};
+ b.onclick=e=>{const t=e.target.closest('[data-dy-owner],[data-dy-tab],[data-dy-head],[data-dy-text],[data-dy-like],[data-dy-gonote],[data-dy-save],[data-dy-new],[data-dy-gen],[data-dy-free],[data-dy-topic],[data-dy-open],[data-dy-note],[data-dy-del],[data-dy-edit],[data-dy-roll],[data-dy-rm],[data-pp-add],[data-pp-view]');if(!t||t.disabled)return;const ds=t.dataset;
   if(ds.dyOwner){DY.owner=ds.dyOwner;if(ds.dyOwner!=='me')DY.pp=ds.dyOwner;rDiary()}
   else if(ds.dyTab){DY.tab=ds.dyTab;rDiary()}
   else if(ds.ppAdd){ppAdd(ds.ppAdd)}
@@ -9945,7 +10075,8 @@ function rDiary(still){
   else if('dyFree' in ds)dyRun(async()=>{const d=await dyGenNote(DY.owner,'');toast(d?'留了一条留言':'ta 现在没有想留的话')});
   else if('dyTopic' in ds)askText('指定留言内容','比如：提醒我早点睡 / 今天想对我说的话').then(v=>{if(v===null)return;dyRun(async()=>{const d=await dyGenNote(DY.owner,v.trim());toast(d?'留言写好了':'没有生成内容')})}).catch(()=>{});
   else if(ds.dyEdit){swClose();dyOpen(ds.dyEdit,true)}
-  else if(ds.dyRm){const id=ds.dyRm;if(!confirm('删除这篇日记？'))return;const el=t.closest('.dy-sw');el.classList.add('dy-out');setTimeout(()=>{S.diaries=S.diaries.filter(x=>x.id!==id);save();rDiary(1)},400)}
+  else if(ds.dyRoll){const d=S.diaries.find(x=>x.id===ds.dyRoll);if(d)dyRerollEntry(d)}
+  else if(ds.dyRm){const d=S.diaries.find(x=>x.id===ds.dyRm);if(d&&confirm('删除这篇日记？'))dyDeleteEntry(d).then(ok=>{if(ok&&stack[stack.length-1]==='diary')rDiary(1)})}
   else if(ds.dyOpen){if(Date.now()-dySwAt<400)return;if(t.classList.contains('open')){t.classList.remove('open');t.style.transform='';return}dyOpen(ds.dyOpen)}
   else if(ds.dyDel){const id=ds.dyDel;if(!confirm('删除这条留言？'))return;const el=t.closest('.mb-item');el.classList.add('dy-out');setTimeout(()=>{S.diaries=S.diaries.filter(x=>x.id!==id);save();rDiary(1)},400)}
   else if(ds.dyNote){const d=S.diaries.find(x=>x.id===ds.dyNote);if(d&&c.noteHide){d.read=!d.read;save();t.classList.toggle('dim',!!d.read)}}};
@@ -9989,7 +10120,7 @@ function dyOpen(id,edit,draft){
  let isNew=!!draft;const d=draft||S.diaries.find(x=>x.id===id);if(!d)return;
  const c=D(),o=dyOwn(d),u=who(o),me=who('me'),old=document.getElementById('dy-read');if(old){if(old._cleanup)old._cleanup();old.remove()}
  if(c.devLine==='Taipei•iPhone18')c.devLine='iPhone18';
- let ed=!!edit,first=true,paras=[];
+ let ed=!!edit,first=true,paras=[],working=false;
  const ov=document.createElement('div');ov.id='dy-read';ov.className='dy dy-clean '+dyFx();ov.style.cssText=dyVars();
  const vv=window.visualViewport,fit=()=>{ov.style.top=vv.offsetTop+'px';ov.style.height=vv.height+'px';ov.style.bottom='auto'};
  if(vv){vv.addEventListener('resize',fit);vv.addEventListener('scroll',fit)}
@@ -10007,13 +10138,13 @@ function dyOpen(id,edit,draft){
   const cmSrc=c.cmAv||me.avatar,cmInner=cmSrc?`<img src="${cmSrc}" alt="">`:SIL;
   ov.classList.toggle('dy-still',!first);
   const bar=ed?`<div class="dy-rbar"><button data-cancel>取消</button><span>${isNew?'写日记':'编辑'}</span><button data-ok class="ok">完成</button></div>`:'';
-  const inner=ed?`<div class="dv dv-edit"><input class="dy-t-in" maxlength="40" placeholder="标题" value="${esc(d.title||'')}"><div class="dy-tools"><button data-mk="红"><u>红线</u></button><button data-mk="蓝"><i>荧光笔</i></button><button data-mk="x">清除标记</button></div><textarea class="dy-b-in" data-min="320" placeholder="写点什么…">${esc(d.content||'')}</textarea><div class="dv-rl">译文（可选）</div><input class="dy-rt-in" maxlength="60" placeholder="标题译文" value="${esc(d.trTitle||'')}"><textarea class="dy-r-in" data-min="80" placeholder="外语日记的中文译文，点正文时整片显示">${esc(d.tr||'')}</textarea></div>`
+  const inner=ed?`<div class="dv dv-edit"><input class="dy-t-in" maxlength="40" placeholder="标题" value="${esc(d.title||'')}"><div class="dy-tools"><button data-mk="红"><u>红线</u></button><button data-mk="蓝"><i>荧光笔</i></button><button data-mk="x">清除标记</button></div><textarea class="dy-b-in" data-min="320" placeholder="写点什么…">${esc(d.content||'')}</textarea><div class="dv-rl">译文（可选） <button type="button" data-dy-translate>重新翻译</button></div><input class="dy-rt-in" maxlength="60" placeholder="标题译文" value="${esc(d.trTitle||'')}"><textarea class="dy-r-in" data-min="80" placeholder="简体中文译文，点正文时显示">${esc(d.tr||'')}</textarea></div>`
   :`<div class="dv">
   <div class="dv-head dy-it" style="--i:0">${avt(u,'button',' data-x aria-label="返回"')}<div class="dv-id"><div class="dv-nm"><b>${esc(u.name)}</b><span class="dv-hd">@${esc(u.handle||o)}</span></div><div class="dv-sub" data-dv="dev">${sub}</div></div></div>
   <p class="dv-copy dy-it${dc.text?'':' empty'}" style="--i:1" data-dv="copy">${esc(dc.text||'点此写一段文案')}</p>
   <div class="dv-line dy-it" style="--i:2" data-dv="line">${icon}<em>${esc(line)}</em></div>
   ${d.title?`<h2 class="dv-title dy-it${d.trTitle?' dv-fo':''}" style="--i:3"><span>${esc(d.title)}</span></h2>`:''}
-  ${d.tr||d.trTitle?'<div class="dv-tip dy-it" style="--i:3">点一下文字，查看中文翻译</div>':''}
+  ${d.tr||d.trTitle?'<div class="dv-tip dy-it" style="--i:3">点一下文字，查看简体中文译文</div>':''}
   <div class="dv-body${d.tr?' dv-fo':''}">${paras.map((p,i)=>`<p class="dy-it" style="--i:${i+4}">${dyMark(p)}</p>`).join('')}</div>
   <hr class="dv-hr dy-it" style="--i:${paras.length+4}">
   ${d.comment?`<div class="dv-cm dy-it" style="--i:${paras.length+5}"><div class="dv-head dv-uh">${avt(me,'div','',cmInner)}<div class="dv-id"><div class="dv-nm"><b>${esc(S.me.name||'我')}</b>${badge}</div><div class="dv-sub" data-dv="cm">${esc(c.cmLine)}</div></div></div><p class="dv-ct" data-dv="cmt">${esc(d.comment)}</p></div>`:''}
@@ -10029,6 +10160,21 @@ function dyOpen(id,edit,draft){
  const send=()=>{const inp=ov.querySelector('.dv-in');if(!inp)return;const v=inp.value.trim();if(!v)return;
   d.comment=v;save();draw();setTimeout(()=>{const b=ov.querySelector('.dy-rbody');if(b)b.scrollTop=b.scrollHeight},30)};
  const close=()=>{ov._cleanup();ov.classList.add('dy-out');setTimeout(()=>ov.remove(),380)};
+ const translateEdit=async button=>{
+  if(working)return;
+  const title=ov.querySelector('.dy-t-in'),body=ov.querySelector('.dy-b-in'),original=body.value,originalTitle=title.value;
+  if(!original.trim())return toast('先输入日记正文');
+  working=true;button.disabled=true;button.textContent='翻译中…';
+  try{
+   const translation=await dyTranslate(originalTitle,dyBodyOf({title:originalTitle,content:original}),rolePhoneConfig());
+   if(!button.isConnected||ov.classList.contains('dy-out'))return;
+   if(body.value!==original||title.value!==originalTitle)return toast('原文已修改，请重新翻译');
+   const field=ov.querySelector('.dy-r-in');
+   field.value=translation.tr;ov.querySelector('.dy-rt-in').value=translation.trTitle;grow(field);
+   toast('译文已填入，点「完成」保存');
+  }catch(e){toast('翻译失败：'+e.message)}
+  finally{working=false;button.disabled=false;button.textContent='重新翻译'}
+ };
  ov.onclick=e=>{
   if(!ed){const tb=e.target.closest('.dv-trb');if(tb){const h=tb.parentNode;h.classList.remove('tr-on');tb.remove();return}
    const mk=(h,html)=>{const bx=document.createElement('div');bx.className='dv-trb';bx.innerHTML=html;h.appendChild(bx);h.classList.add('tr-on')};
@@ -10044,6 +10190,7 @@ function dyOpen(id,edit,draft){
    return}
   const t=e.target.closest('button');if(!t)return;
   if(t.hasAttribute('data-x'))close();
+  else if(t.hasAttribute('data-dy-translate'))translateEdit(t);
   else if(t.hasAttribute('data-send'))send();
   else if(t.hasAttribute('data-cmav')){
    const pick=()=>dyPickAv(src=>{c.cmAv=src;save();draw()});
@@ -11938,6 +12085,9 @@ async function xrPlazaDetail(it){const wrap=$('#v-repo .of-wrap');if(!wrap)retur
 .dy-sw-act{position:absolute;right:0;top:0;bottom:0;width:136px;display:flex}
 .dy-sw-act button{flex:1;font-size:14px;font-weight:600;color:#fff;background:#2b2b2b}
 .dy-sw-act .del{background:#e5484d}
+.dy-sw-roll .dy-sw-act{width:204px}
+.dy-sw-act [data-dy-roll]{background:#4e4e4e}
+.dy-sw-act button:disabled{opacity:.66}
 
 /* 重点标记：红色下划线 / 蓝色荧光笔 */
 .mk-r{background:linear-gradient(#e5383b,#e5383b) 0 100%/100% 2px no-repeat;padding-bottom:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;animation:mkR .7s ease-out .6s backwards}
@@ -12034,6 +12184,7 @@ async function xrPlazaDetail(it){const wrap=$('#v-repo .of-wrap');if(!wrap)retur
 <style id="dy-clean4-style">
 /* 详情页：字号/头像收小 */
 .dv-head{gap:10px}
+.dv-rl [data-dy-translate]{margin-left:8px;padding:8px 0;color:var(--ink);text-decoration:underline}
 .dv-av{width:44px;height:44px}
 .dv-av .av{box-shadow:none;border:1.5px solid #c8c8c8;box-sizing:border-box;font-size:17px}
 [data-theme=dark] .dv-av .av{box-shadow:none;border-color:#fff}

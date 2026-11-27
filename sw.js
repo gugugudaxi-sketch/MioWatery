@@ -23,3 +23,25 @@ self.addEventListener('push', e => {
     body: d.body || '', tag: d.tag || 'push', data: d.data || {}, icon: d.icon || 'icon-192.png?v=1eee1f6', renotify: true
   }));
 });
+
+// Keep the short notification test alive independently of the page's timers.
+self.addEventListener('message', event => {
+  if (event.data?.type !== 'mio-notification-test' || !event.ports[0]) return;
+  const port = event.ports[0];
+  event.waitUntil((async () => {
+    port.postMessage({ state: 'scheduled' });
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    try {
+      await self.registration.showNotification('Mio水汪汪', {
+        body: '这是一条后台测试通知，点它回到小手机',
+        tag: 'mio-test-delayed',
+        renotify: true,
+        icon: 'icon-192.png?v=1eee1f6'
+      });
+      port.postMessage({ state: 'sent' });
+    } catch (error) {
+      console.warn('后台测试通知失败', error);
+      port.postMessage({ state: 'failed' });
+    }
+  })());
+});
