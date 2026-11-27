@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "",
-  "buildCommand": "mkdir -p dist && cp index.html manifest.json sw.js icon-192.png icon-512.png dist/",
+  "buildCommand": "mkdir -p dist && cp index.html manifest.json sw.js icon-192.png icon-512.png keepalive.mp3 dist/",
   "outputDirectory": "dist"
 }

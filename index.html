@@ -3123,7 +3123,7 @@ setTimeout(function(){finish(false)},7600);
     <div class="cap">悬浮球</div><div class="card"><label class="chk" style="margin-top:0"><input type="checkbox" id="c-fball">显示悬浮球</label><p class="note" style="margin-top:8px">开启后屏幕上会出现可拖动的小圆球，轻点可快速切换 API 预设，或一键回到主画面。</p><div class="fb-img"><span id="c-fball-prev" class="fb-prev"></span><div class="fb-act"><button class="btn fill" id="c-fball-img" type="button">更换图片</button><button class="btn" id="c-fball-img-clear" type="button">恢复默认</button></div></div><p class="note" style="margin-top:8px">支持相册图片、图片链接和 GIF 动图（GIF 不超过 3MB）。透明背景的 PNG 或 GIF 会按图片本身的形状显示，不带底圈。</p><label class="chk"><input type="checkbox" id="c-fball-round">将图片裁成圆形</label><div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>悬浮球大小</span><span id="c-fball-size-v">46px</span></div><input type="range" id="c-fball-size" min="28" max="96" step="1" style="width:100%;margin-top:8px"></div><label class="chk" style="margin-top:14px"><input type="checkbox" id="c-lyrwin">播放音乐时显示歌词悬浮窗</label><p class="note" style="margin-top:8px">听歌时退出音乐 App，会出现一个可上下拖动的歌词悬浮窗；左滑或右滑可收起到屏幕边缘，点边缘小标签再展开。</p></div>
   </div>
   <div class="body settings-sub" id="settings-system" style="display:none">
-    <div class="cap">后台保活</div><div class="card"><label class="chk"><input type="checkbox" id="c-keepalive">开启后台保活（静音播放，灵动岛和锁屏会显示播放卡片）</label><p class="note">开启后轻点屏幕即可尝试启动静音保活。音乐播放时会暂停保活，停播后恢复。浏览器或系统仍可能挂起网页。</p></div>
+    <div class="cap">后台保活</div><div class="card"><label class="chk"><input type="checkbox" id="c-keepalive">开启后台保活（静音音频）</label><button class="btn" id="keepalive-start" type="button">启动或重试保活</button><p class="note" id="keepalive-status" aria-live="polite"></p><p class="note">音乐播放优先。锁屏媒体卡片或灵动岛由系统决定是否显示。系统挂起网页后，后台生成仍可能中断。</p></div>
     <div class="cap">消息通知</div><div class="card"><label class="chk"><input type="checkbox" id="c-notify">角色回复时提醒（前台横幅、后台系统通知）</label><button class="btn" id="notify-perm" type="button">开启系统通知</button><button class="btn" id="notify-now" type="button">立即测试通知</button><button class="btn" id="notify-test" type="button">5 秒后发送测试通知</button><p class="note" id="notify-status" aria-live="polite"></p><p class="note" id="notify-result" aria-live="polite"></p></div>
   </div>
   <div class="body settings-sub" id="settings-appearance" style="display:none">
@@ -7464,43 +7464,99 @@ function syncChrome(){
 ['pageshow','visibilitychange'].forEach(n=>addEventListener(n,()=>requestAnimationFrame(syncChrome)));
 try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',syncChrome)}catch(e){}
 syncChrome();
-let kaA=null,kaUrl='',kaArt_='',kaHook=false,kaStarting=null;
-function kaWav(){const sr=8000,n=sr*2,buf=new ArrayBuffer(44+n),v=new DataView(buf),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);for(let i=0;i<n;i++)v.setUint8(44+i,128+(i%400<2?1:0));return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}))}
-function kaArtMake(){try{const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle='#111';x.fillRect(0,0,256,256);x.fillStyle='#fff';x.font='bold 64px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('Mio',128,128);return c.toDataURL('image/png')}catch(e){return''}}
-function kaMeta(title,artist){try{if(!('mediaSession' in navigator))return;if(typeof MS!=='undefined'&&MS&&MS.playing)return;navigator.mediaSession.metadata=new MediaMetadata({title:title||'Mio水汪汪',artist:artist||'保持在线中',album:'Mio水汪汪',artwork:kaArt_?[{src:kaArt_,sizes:'256x256',type:'image/png'}]:[]});navigator.mediaSession.playbackState='playing'}catch(e){}}
+let kaA=null,kaHook=false,kaStarting=null,kaAudioType=null,kaProbe=0,kaMetadata=null;
+const kaMusicPlaying=()=>typeof MSA!=='undefined'&&!MSA.paused;
+function kaStatus(text){
+ const status=$('#keepalive-status');
+ if(status&&status.textContent!==text)status.textContent=text;
+}
+function kaMeta(title,artist){
+ if(!kaA||kaA.paused||kaMusicPlaying()||!('mediaSession' in navigator))return;
+ try{
+  kaMetadata=new MediaMetadata({
+   title:title||'Mio水汪汪',artist:artist||'静音保活',album:'Mio水汪汪',
+   artwork:[{src:new URL('icon-192.png?v=1eee1f6',location.href).href,sizes:'192x192',type:'image/png'}]
+  });
+  navigator.mediaSession.metadata=kaMetadata;
+  navigator.mediaSession.playbackState='playing';
+ }catch(e){}
+}
+function kaSetAudioType(active){
+ if(!navigator.audioSession)return;
+ try{
+  if(active&&kaAudioType===null){kaAudioType=navigator.audioSession.type;navigator.audioSession.type='playback'}
+  if(!active&&kaAudioType!==null){
+   if(navigator.audioSession.type==='playback')navigator.audioSession.type=kaAudioType;
+   kaAudioType=null;
+  }
+ }catch(e){}
+}
 async function keepAlive(on){
- const musicPlaying=typeof MS!=='undefined'&&typeof MSA!=='undefined'&&!MSA.paused;
+ const musicPlaying=kaMusicPlaying();
  if(!on){
-  const audio=kaA;kaA=null;kaStarting=null;
-  if(audio){audio.pause();audio.removeAttribute('src');audio.load()}
-  if(kaUrl){URL.revokeObjectURL(kaUrl);kaUrl=''}
-  try{if(!musicPlaying&&'mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none'}}catch(e){}
-  return 'off';
+  clearTimeout(kaProbe);
+  const audio=kaA;
+  kaA=null;kaStarting=null;
+  if(audio){audio.pause();audio.removeAttribute('src');audio.load();audio.remove()}
+  kaSetAudioType(false);
+  try{if(kaMetadata&&!musicPlaying&&navigator.mediaSession?.metadata===kaMetadata){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none'}}catch(e){}
+  kaMetadata=null;
+  kaStatus('保活已关闭');
+  return;
  }
  if(!kaHook&&typeof MSA!=='undefined'){
   kaHook=true;
-  MSA.addEventListener('play',()=>kaA?.pause());
+  MSA.addEventListener('play',()=>{if(S.cfg.keepAlive){kaA?.pause();kaStatus('正在播放音乐，停播后尝试恢复静音保活')}});
   for(const event of ['pause','ended','error'])MSA.addEventListener(event,()=>{if(S.cfg.keepAlive)keepAlive(true)});
  }
- if(musicPlaying){kaA?.pause();return 'music'}
+ if(musicPlaying){kaA?.pause();kaStatus('正在播放音乐，停播后尝试恢复静音保活');return}
  if(!kaA){
-  kaUrl=kaWav();kaA=new Audio(kaUrl);kaA.loop=true;kaA.preload='auto';kaA.setAttribute('playsinline','');
+  const audio=document.createElement('audio');
+  audio.src='keepalive.mp3';audio.loop=true;audio.preload='auto';audio.hidden=true;
+  audio.setAttribute('playsinline','');document.body.appendChild(audio);kaA=audio;
+  audio.addEventListener('pause',()=>{
+   if(kaA===audio&&!kaMusicPlaying()){
+    kaStatus('静音音频已暂停，可点「启动或重试保活」');
+    if(navigator.mediaSession)try{navigator.mediaSession.playbackState='paused'}catch(e){}
+   }
+  });
+  audio.addEventListener('error',()=>{if(kaA===audio)kaStatus('静音音频加载失败，刷新后可重试')});
  }
- if(!kaArt_)kaArt_=kaArtMake();
  const audio=kaA;
  if(audio.paused&&!kaStarting){
+  kaSetAudioType(true);
+  kaStatus('正在启动静音音频…');
   const job=audio.play().then(()=>true,()=>false);
-  kaStarting=job;
-  job.then(()=>{if(kaStarting===job)kaStarting=null});
+  kaStarting=job;job.then(()=>{if(kaStarting===job)kaStarting=null});
  }
  if(kaStarting)await kaStarting;
- if(kaA!==audio||!S.cfg.keepAlive)return 'off';
- if(typeof MSA!=='undefined'&&!MSA.paused){audio.pause();return 'music'}
- if(audio.paused)return 'blocked';
- kaMeta();return 'running';
+ if(kaA!==audio||!S.cfg.keepAlive)return;
+ if(kaMusicPlaying()){audio.pause();return}
+ if(audio.paused){
+  kaSetAudioType(false);
+  kaStatus(audio.error?'静音音频加载失败，刷新后可重试':'浏览器未开始播放，可点「启动或重试保活」');
+  return;
+ }
+ kaMeta();
+ kaStatus('静音音频正在播放'+('mediaSession' in navigator?'，已向系统提供媒体信息':'，当前浏览器未提供媒体卡片接口'));
 }
-document.addEventListener('visibilitychange',()=>{if(S.cfg.keepAlive&&!document.hidden)keepAlive(true)});
-for(const event of ['pointerup','keydown'])document.addEventListener(event,()=>{if(S.cfg.keepAlive&&(!kaA||kaA.paused))keepAlive(true)},{passive:true});
+function kaResume(){
+ if(!S.cfg.keepAlive||document.hidden)return;
+ const audio=kaA;
+ if(!audio||audio.paused){keepAlive(true);return}
+ // A mobile browser can resume without advancing the audio position.
+ const before=audio.currentTime;
+ clearTimeout(kaProbe);
+ kaProbe=setTimeout(()=>{
+  if(document.hidden||kaA!==audio||kaMusicPlaying()||audio.paused||Math.abs(audio.currentTime-before)>.1)return;
+  audio.pause();keepAlive(true);
+ },1600);
+}
+document.addEventListener('visibilitychange',kaResume);
+addEventListener('pageshow',kaResume);
+for(const event of ['pointerup','keydown'])document.addEventListener(event,()=>{
+ if(S.cfg.keepAlive&&(!kaA||kaA.paused)&&!kaStarting)keepAlive(true)
+},{passive:true});
 
 let unreadN=0;
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){unreadN=0;try{const r=navigator.clearAppBadge&&navigator.clearAppBadge();r&&r.catch&&r.catch(()=>{})}catch(e){}document.title='Mio水汪汪'}});
@@ -8015,12 +8071,15 @@ function sysInit(){
   return Notification.permission==='granted';
  };
  ka.checked=!!S.cfg.keepAlive;
- ka.onchange=async()=>{
-  S.cfg.keepAlive=ka.checked;save();
-  const state=await keepAlive(ka.checked);
-  if(ka.checked!==!!S.cfg.keepAlive)return;
-  result.textContent=({off:'保活已关闭',music:'正在播放音乐，保活会在音乐停播后恢复',running:'静音保活已启动',blocked:'浏览器暂未允许保活播放，再点一下页面可重试'})[state];
+ ka.onchange=()=>{S.cfg.keepAlive=ka.checked;save();keepAlive(ka.checked)};
+ $('#keepalive-start').onclick=()=>{
+  if(!ka.checked){ka.checked=true;S.cfg.keepAlive=true;save()}
+  keepAlive(true)
  };
+ if(!S.cfg.keepAlive)kaStatus('保活已关闭');
+ else if(!$('#keepalive-status').textContent||$('#keepalive-status').textContent==='保活已关闭'){
+  kaStatus(kaMusicPlaying()?'正在播放音乐，停播后尝试恢复静音保活':'等待启动静音音频');
+ }
  nt.checked=S.cfg.notifyPopup!==false;nt.onchange=()=>{S.cfg.notifyPopup=nt.checked;save()};
  $('#notify-perm').onclick=async()=>{result.textContent=await permit()?'系统通知权限已允许':'系统通知尚未获准'};
  const late=$('#notify-test');
