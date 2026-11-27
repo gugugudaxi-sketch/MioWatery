@@ -8148,7 +8148,7 @@ Object.assign(RPI,{
  al:'<rect x="5" y="8" width="14" height="12" rx="2.5"/><path d="M7.5 5h9M9.5 2.5h5"/>',
  dl:'<circle cx="12" cy="12" r="9.5"/><path d="M12 7v8M8.5 12l3.5 3.5 3.5-3.5"/>'});
 const MSA=new Audio();MSA.preload='auto';MSA.setAttribute('playsinline','');
-const MS={searching:false,discLoading:0,discErr:'',tab:0,q:'',results:[],err:'',loading:0,sub:null,subList:[],detail:false,queue:[],qi:-1,cur:null,playing:false,sid:0,seeking:false,obj:null,dt:0,reset:0};
+const MS={searching:false,discLoading:0,discErr:'',tab:0,q:'',results:[],err:'',loading:0,sub:null,subList:[],detail:false,queue:[],qi:-1,cur:null,playing:false,sid:0,playRequest:0,seeking:false,obj:null,dt:0,reset:0};
 const MS_HOT=['周杰伦','Taylor Swift','陈奕迅','Ariana Grande','林俊杰','Billie Eilish','五月天','The Weeknd'];
 const MSG=['linear-gradient(160deg,#4a14e8,#9b3bf0 60%,#d878b0)','linear-gradient(160deg,#f3b53f,#f0c25a)','linear-gradient(160deg,#ff5f6d,#ffc371)','linear-gradient(160deg,#11998e,#38ef7d)','linear-gradient(160deg,#2b5876,#4e4376)','linear-gradient(160deg,#ee0979,#ff6a00)'];
 const msM=()=>{if(!S.music)S.music={lib:[],recent:[],together:null};return S.music};
@@ -8156,6 +8156,9 @@ const msUser=()=>(S.userProfiles||[]).find(x=>x.id===S.activeUserProfile)||S.me;
 const msHash=s=>[...String(s)].reduce((a,c)=>a+c.charCodeAt(0),0);
 const msFmt=s=>{s=Math.floor(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 const msArt=(t,c='')=>`<div class="ms-art ${c}" style="background:${MSG[msHash(t.title||t.id||'')%MSG.length]}">${rpSvg('nn')}${t.art?`<img src="${esc(t.art)}" alt="" loading="lazy" onerror="this.remove()">`:''}</div>`;
+const msRemoteTrack=t=>['qq','gd','itunes'].includes(t.src);
+const msHasLyrics=t=>t&&(t.src==='qq'||t.src==='gd');
+const msCanPlay=t=>!!t.url||msHasLyrics(t)||t.src==='file';
 const msList=k=>k==='r'?msM().recent:k==='s'?MS.results:k==='l'?msM().lib:k==='n'?((msM().disc||{}).songs||[]):MS.subList;
 /* file storage for imported audio */
 const msDB=()=>new Promise((res,rej)=>{const r=indexedDB.open('xsj-music',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
@@ -8217,10 +8220,15 @@ function msResultsHTML(){
  if(MS.loading)return '<div class="ms-e">搜索中…</div>';
  if(MS.err)return `<div class="ms-e">${esc(MS.err)}</div>`;
  if(!MS.q)return `<div class="ms-h">热门搜索</div><div class="ms-chips">${MS_HOT.map(h=>`<button data-ms-hot="${esc(h)}">${esc(h)}</button>`).join('')}</div>`;
- if(!MS.results.length)return '<div class="ms-e">没有找到相关歌曲</div>';
- return `<div class="ms-h">歌曲${rpSvg('chr')}</div><div class="ms-ls">${MS.results.map((t,i)=>msRow(t,'s',i)).join('')}</div><p class="ms-note">在线歌曲为 30 秒试听片段</p>`;
+ if(!MS.results.length)return `<div class="ms-e">没有找到相关歌曲${MS.searchNotice?'<br>'+esc(MS.searchNotice):''}</div>`;
+ const src=MS.results[0].src;
+ const credit=src==='gd'?msGdCredit:src==='qq'?'来源：QQ 音乐':'来源：iTunes · 30 秒试听';
+ const warning=MS.searchNotice?' · '+esc(MS.searchNotice):'';
+ return `<div class="ms-h">歌曲${rpSvg('chr')}</div><div class="ms-ls">${MS.results.map((t,i)=>msRow(t,'s',i)).join('')}</div><p class="ms-note">${credit}${warning}</p>`;
 }
-const msDiscover=()=>`<div class="ms-sbar"><div class="ms-search">${rpSvg('se')}<input id="ms-q" placeholder="搜索歌曲、艺人" value="${esc(MS.q)}" autocomplete="off" enterkeyhint="search"></div><button class="ms-cancel" data-ms-searchcancel>取消</button></div><div id="ms-results">${msResultsHTML()}</div>`;
+const msDiscover=()=>`<div class="ms-sbar"><div class="ms-search">${rpSvg('se')}<input id="ms-q" placeholder="搜索歌曲、艺人" value="${esc(MS.q)}" autocomplete="off" enterkeyhint="search"></div><button class="ms-cancel" data-ms-submit>搜索</button><button class="ms-cancel" data-ms-searchcancel>取消</button></div>
+${qqOn()?`<div class="ms-chips" aria-label="搜索来源"><button data-ms-source="auto" aria-pressed="${!MS.gdSearch}">QQ 音乐优先</button><button data-ms-source="gd" aria-pressed="${!!MS.gdSearch}">GD 音乐台</button></div>`:`<p class="ms-note">搜索来源：${msGdCredit}</p>`}
+<div id="ms-results">${msResultsHTML()}</div>`;
 const msSkel=()=>`<div class="ms-sk"><div class="l s"></div><div class="l"></div><div class="l m"></div><div class="blk"></div><div class="l h"></div>${Array.from({length:4},()=>'<div class="rw"><i></i><div><div class="l"></div><div class="l m"></div></div></div>').join('')}</div>`;
 const qqCfg=()=>msM().qq||{};
 const qqOn=()=>{const c=qqCfg();return !!(c.base&&c.key)};
@@ -8235,6 +8243,52 @@ async function qqApi(path,body){
   return j
  }catch(e){if(e.name==='AbortError')throw new Error('连接超时');if(e instanceof TypeError)throw new Error('无法连接后端，请检查网址');throw e}
  finally{clearTimeout(to)}
+}
+const msGdCredit='<a href="https://music.gdstudio.xyz/" target="_blank" rel="noopener noreferrer">GD 音乐台</a>';
+const MS_GD_API='https://music-api.gdstudio.xyz/api.php';
+const msGdCache=new Map();
+async function msGdRequest(types,source,params,signal){
+ const query=new URLSearchParams({types,source,...params});
+ const key=query.toString();
+ const cached=msGdCache.get(key);
+ if(cached&&Date.now()-cached.time<300000)return cached.data;
+ const timeout=new AbortController(),cancel=()=>timeout.abort();
+ if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
+ const timer=setTimeout(cancel,8000);
+ try{
+  const response=await fetch(MS_GD_API+'?'+key,{signal:timeout.signal});
+  if(!response.ok)throw new Error(response.status===429?'请求过于频繁，请稍后再试':'请求失败（'+response.status+'）');
+  const data=await response.json();
+  if(types!=='url'&&(types!=='search'||Array.isArray(data))){
+   if(msGdCache.size>=40)msGdCache.delete(msGdCache.keys().next().value);
+   msGdCache.set(key,{time:Date.now(),data});
+  }
+  return data;
+ }catch(e){if(e.name==='AbortError')throw new Error('连接超时');throw e}
+ finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel)}
+}
+async function msGdFind(q,signal){
+ const source='netease',data=await msGdRequest('search',source,{name:q,count:20,pages:1},signal);
+ if(!Array.isArray(data))throw new Error('响应格式异常');
+ return data.filter(t=>t?.id&&typeof t.name==='string'&&t.name.trim()).map(t=>{
+  const gdId=String(t.id),gdSource=typeof t.source==='string'&&t.source?t.source:source;
+  return {id:'gd:'+gdSource+':'+gdId,src:'gd',gdId,gdSource,title:t.name,
+   artist:Array.isArray(t.artist)?t.artist.filter(x=>typeof x==='string').join(' / '):String(t.artist||''),
+   album:typeof t.album==='string'?t.album:'',art:'',gdPicId:String(t.pic_id||''),gdLyricId:String(t.lyric_id||gdId)};
+ });
+}
+function msGdUrl(value){
+ try{const u=new URL(value,MS_GD_API);return typeof value==='string'&&/^(?:https:)?\/\//i.test(value)&&u.protocol==='https:'?u.href:''}catch(e){return''}
+}
+async function msGdCover(t,request){
+ if(t.art||!t.gdPicId)return;
+ try{
+  const r=await msGdRequest('pic',t.gdSource,{id:t.gdPicId,size:300});
+  if(request!==MS.playRequest||MS.cur!==t||!msGdUrl(r?.url))return;
+  t.art=msGdUrl(r.url);
+  for(const item of [...msM().lib,...msM().recent])if(item.id===t.id)item.art=t.art;
+  save();msRender();msMedia(t)
+ }catch(e){}
 }
 const msQQ=s=>({id:'qq'+s.mid,mid:s.mid,title:s.title,artist:s.artist,album:s.album||'',art:s.art||'',duration:s.duration||0,src:'qq',mediaMid:s.mediaMid||'',type:s.type||0,vip:!!s.vip});
 async function qqPlaylistAll(id,cap){
@@ -8264,7 +8318,7 @@ async function msLoadDisc(force){
 function msDiscEnsure(){const d=msM().disc;if(!qqOn()||MS.discLoading||MS.discErr)return;if(d&&d.pls&&Date.now()-d.ts<216e5)return;msLoadDisc()}
 function msBrowse(){
  const d=msM().disc,chr=rpSvg('chr');
- if(!qqOn())return`<div class="ms-e">连接 QQ 音乐后，这里会显示你的歌单和最近喜欢的歌<br><button class="ms-retry" data-ms-qqset>去连接</button></div>`;
+ if(!qqOn())return`<div class="ms-e">用 GD 音乐台搜歌并在线播放<br><button class="ms-retry" data-ms-tab="1" data-ms-focus>搜索歌曲</button> <button class="ms-retry alt" data-ms-qqset>连接 QQ 音乐</button><p class="ms-note">来源：${msGdCredit}</p></div>`;
  if(!d||!d.pls||!d.pls.length){
   if(MS.discErr)return`<div class="ms-e">${esc(MS.discErr)}<br><button class="ms-retry" data-ms-retry>重试</button> <button class="ms-retry alt" data-ms-qqset>连接设置</button></div>`;
   return msSkel()
@@ -8289,7 +8343,7 @@ async function msPlayPlaylist(id){
 }
 function msRadio(){
  const m=msM(),d=m.disc||{},seen=new Set();
- const pool=[...m.recent,...m.lib,...(d.songs||[]),...(d.pls||[]).flatMap(p=>p.songs||[])].filter(t=>{if(seen.has(t.id))return false;seen.add(t.id);return t.src==='qq'||t.url||t.src==='file'||t.src==='url'});
+ const pool=[...m.recent,...m.lib,...(d.songs||[]),...(d.pls||[]).flatMap(p=>p.songs||[])].filter(t=>{if(seen.has(t.id))return false;seen.add(t.id);return msCanPlay(t)});
  if(!pool.length)return toast('还没有可播放的歌曲，先去新发现看看');
  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
  msPlay(pool,0)
@@ -8373,21 +8427,40 @@ function msQQImportAll(){
 const msResultsDraw=()=>{const el=$('#ms-results');if(el)el.innerHTML=msResultsHTML()};
 async function msSearch(q){
  q=q.trim();MS.q=q;const my=++MS.sid;
- if(!q){MS.results=[];MS.err='';MS.loading=0;msResultsDraw();return}
- MS.loading=1;MS.err='';msResultsDraw();
+ MS.searchAbort?.abort();
+ const ctrl=new AbortController();MS.searchAbort=ctrl;
+ MS.results=[];MS.err='';MS.searchNotice='';
+ if(!q){MS.loading=0;msResultsDraw();return}
+ MS.loading=1;msResultsDraw();
+ let results=[],notice='';
  try{
-  if(qqOn()){const j=await qqApi('search?q='+encodeURIComponent(q)+'&num=25');if(my!==MS.sid)return;MS.results=(j.songs||[]).map(msQQ)}
-  else{const r=await fetch('https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&media=music&entity=song&limit=25&country=cn');if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();if(my!==MS.sid)return;
-   MS.results=(j.results||[]).filter(x=>x.trackName).map(x=>({id:'it'+x.trackId,title:x.trackName,artist:x.artistName||'',album:x.collectionName||'',art:(x.artworkUrl100||'').replace('100x100','400x400'),url:x.previewUrl||'',src:'itunes'}))}
- }catch(e){if(my!==MS.sid)return;MS.err='搜索失败：'+e.message}
+  if(qqOn()&&!MS.gdSearch){
+   try{const j=await qqApi('search?q='+encodeURIComponent(q)+'&num=25');results=(j.songs||[]).map(msQQ)}
+   catch(e){notice='QQ 音乐搜索失败，已尝试 GD 音乐台'}
+  }
+  if(my!==MS.sid)return;
+  if(!results.length){
+   try{results=await msGdFind(q,ctrl.signal)}
+   catch(e){notice='GD 音乐台暂不可用，已尝试 iTunes 试听'}
+  }
+  if(my!==MS.sid)return;
+  if(!results.length){
+   const r=await fetch('https://itunes.apple.com/search?'+new URLSearchParams({term:q,media:'music',entity:'song',limit:25,country:'cn'}),{signal:ctrl.signal});
+   if(!r.ok)throw new Error('iTunes 搜索失败（'+r.status+'）');
+   const j=await r.json();
+   results=(j.results||[]).filter(x=>x.trackName&&x.previewUrl).map(x=>({id:'it'+x.trackId,title:x.trackName,artist:x.artistName||'',album:x.collectionName||'',art:(x.artworkUrl100||'').replace('100x100','400x400'),url:x.previewUrl,src:'itunes'}));
+  }
+  if(my!==MS.sid)return;
+  MS.results=results;MS.searchNotice=notice;
+ }catch(e){if(my!==MS.sid)return;MS.err=(notice?notice+'。':'')+e.message}
  MS.loading=0;msResultsDraw()
 }
 function msLibrary(){
  const lib=msM().lib;
  if(MS.sub){
   const s=MS.sub;let items=lib;
-  if(s.type==='qq')return msQQListHTML();if(s.type==='qqpl')return msQQPlHTML();if(s.type==='imported')items=lib.filter(t=>t.src!=='itunes'&&t.src!=='qq');
-  if(s.type==='fav')items=lib.filter(t=>t.src==='itunes'||t.src==='qq');
+  if(s.type==='qq')return msQQListHTML();if(s.type==='qqpl')return msQQPlHTML();if(s.type==='imported')items=lib.filter(t=>!msRemoteTrack(t));
+  if(s.type==='fav')items=lib.filter(msRemoteTrack);
   if((s.type==='artist'||s.type==='album')&&s.key==null){
    const k=s.type==='artist'?'artist':'album',g={};lib.forEach(t=>{const n=t[k]||'未知';(g[n]=g[n]||[]).push(t)});
    return `<div class="ms-ls">${Object.keys(g).map(n=>`<div class="ms-r" data-ms-grp="${esc(n)}"><div class="mi"><b>${esc(n)}</b><small>${g[n].length} 首歌曲</small></div><span class="ms-ch">${rpSvg('chr')}</span></div>`).join('')||'<div class="ms-e">资料库是空的</div>'}</div>`}
@@ -8408,7 +8481,7 @@ function msNP(){
  ${msLyricHTML()}<div class="ms-seek"><input type="range" id="ms-seek" min="0" max="1000" value="0"><div><span id="ms-t1">0:00</span><span id="ms-t2">0:00</span></div></div>
  <div class="ms-ctl"><button data-ms-prev aria-label="上一首">${rpSvg('pv',1)}</button><button class="big" data-ms-toggle aria-label="播放或暂停">${rpSvg(MS.playing?'pz':'pp',1)}</button><button data-ms-next aria-label="下一首">${rpSvg('sk',1)}</button></div>
  ${msModeBtn()}<button class="ms-tg" data-ms-together>${rpSvg('tg')}<span>${pt?'正在和 '+esc(pt.name)+' 一起听（点此更换或结束）':'和角色一起听'}</span></button>
- ${t.src==='itunes'?'<p class="ms-note">在线歌曲为 30 秒试听片段</p>':''}</div>`;
+ ${t.src==='itunes'?'<p class="ms-note">iTunes · 30 秒试听</p>':t.src==='gd'?'<p class="ms-note">来源：'+msGdCredit+'</p>':''}</div>`;
 }
 function msRender(){
  const root=$('#ms-root'),v=$('#v-music');if(!root||!v||!v.classList.contains('on'))return;
@@ -8430,21 +8503,34 @@ function msProgress(){const d=MSA.duration||0,c=MSA.currentTime||0,s=$('#ms-seek
 function msMedia(t){try{if(!('mediaSession' in navigator))return;navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist,album:t.album||'',artwork:t.art?[{src:t.art,sizes:'400x400'}]:[]});navigator.mediaSession.setActionHandler('nexttrack',()=>msNext(1));navigator.mediaSession.setActionHandler('previoustrack',()=>msNext(-1))}catch(e){}}
 const MS_SILENT='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 async function msPlay(list,i){
- const t=list[i];if(!t)return;MS.radio=0;MS.queue=list.slice();MS.qi=i;MS.cur=t;MS.lyr=null;MS.lyk='';let url=t.url;
- let unlocked=false;
+ const t=list[i];if(!t)return;
+ const request=++MS.playRequest;
+ let url=t.url,alt=null;
+ if(msHasLyrics(t)&&!MS.unlocked){
+  MS.unlocked=1;MS.unlocking=true;MSA.src=MS_SILENT;MSA.play().catch(()=>{})
+ }
  try{
-  if(t.src==='file'){const b=await msGet(t.fileKey);if(!b)throw new Error('文件已丢失，请重新导入');if(MS.obj)URL.revokeObjectURL(MS.obj);url=MS.obj=URL.createObjectURL(b)}
-  else if(t.src==='qq'){
-   if(!MS.unlocked){MS.unlocked=1;MS.unlocking=true;unlocked=true;MSA.src=MS_SILENT;MSA.play().catch(()=>{})}
+  if(t.src==='file'){
+   const b=await msGet(t.fileKey);if(request!==MS.playRequest)return;
+   if(!b)throw new Error('文件已丢失，请重新导入');
+   if(MS.obj)URL.revokeObjectURL(MS.obj);url=MS.obj=URL.createObjectURL(b)
+  }else if(t.src==='qq'){
    const r=await qqApi('song',{mid:t.mid,mediaMid:t.mediaMid||'',type:t.type||0});
-   if(MS.cur!==t)return;
-   MS.alt={id:t.id,proxy:qqBase()+r.url,tried:!r.direct};url=r.direct||MS.alt.proxy;msLoadLyric(t)
+   alt={id:t.id,proxy:qqBase()+r.url,tried:!r.direct};url=r.direct||alt.proxy
+  }else if(t.src==='gd'){
+   const r=await msGdRequest('url',t.gdSource,{id:t.gdId,br:128});
+   url=msGdUrl(r?.url);
+   if(!url)throw new Error('GD 音乐台没有返回可播放的音源，可以试试同名的其他版本')
   }
- }catch(e){MS.unlocking=false;toast(e.message);return}
- MS.unlocking=false;
- if(!url)return toast('这首歌没有可播放的音源');
+  if(request!==MS.playRequest)return;
+  if(!url)throw new Error('这首歌没有可播放的音源');
+ }catch(e){if(request===MS.playRequest){MS.unlocking=false;toast(e.message)}return}
+ MS.unlocking=false;MS.radio=0;MS.queue=list.slice();MS.qi=i;MS.cur=t;MS.lyr=null;MS.lyk='';MS.alt=alt;
  MSA.src=url;
- try{await MSA.play()}catch(e){if(!(e&&e.name==='NotSupportedError'&&t.src==='qq'))toast('无法播放：'+(e.message||'音源不可用'))}
+ if(msHasLyrics(t))msLoadLyric(t,request);
+ if(t.src==='gd')msGdCover(t,request);
+ try{await MSA.play()}catch(e){if(request===MS.playRequest&&!(e?.name==='NotSupportedError'&&t.src==='qq'))toast('无法播放：'+(e.message||'音源不可用'))}
+ if(request!==MS.playRequest)return;
  const m=msM();m.recent=[t,...m.recent.filter(x=>x.id!==t.id)].slice(0,20);
  if(m.together)Object.assign(m.together,{title:t.title,artist:t.artist});
  save();msRender();msMedia(t);
@@ -8459,20 +8545,22 @@ function msParseLrc(t){
  });
  return out.sort((a,b)=>a.t-b.t)
 }
-async function msLoadLyric(t){
+async function msLoadLyric(t,request){
+ const current=()=>MS.cur===t&&MS.playRequest===request;
  try{
-  const r=await qqApi('lyric?mid='+encodeURIComponent(t.mid));if(MS.cur!==t)return;
-  const Ls=msParseLrc(r.lrc).filter(x=>x.text),Ts=msParseLrc(r.trans).filter(x=>x.text);
+  const r=t.src==='gd'?await msGdRequest('lyric',t.gdSource,{id:t.gdLyricId||t.gdId}):await qqApi('lyric?mid='+encodeURIComponent(t.mid));
+  if(!current())return;
+  const Ls=msParseLrc(r.lrc||r.lyric).filter(x=>x.text),Ts=msParseLrc(r.trans||r.tlyric).filter(x=>x.text);
   Ls.forEach(x=>{const m=Ts.find(y=>Math.abs(y.t-x.t)<.6);if(m&&m.text!==x.text)x.tr=m.text});
   MS.lyr={id:t.id,lines:Ls};MS.lyk='';msLyricTick()
- }catch(e){if(MS.cur===t){MS.lyr={id:t.id,lines:[]};MS.lyk='';msLyricTick()}}
+ }catch(e){if(current()){MS.lyr={id:t.id,lines:[]};MS.lyk='';msLyricTick()}}
 }
 function msLyricIdx(){
  const Ls=MS.lyr&&MS.lyr.lines;if(!Ls||!Ls.length)return -1;
  const c=MSA.currentTime||0;let i=-1;for(let k=0;k<Ls.length;k++){if(Ls[k].t<=c+.25)i=k;else break}return i
 }
 function msLyricHTML(){
- const t=MS.cur;if(!t||t.src!=='qq')return'';
+ const t=MS.cur;if(!msHasLyrics(t))return'';
  if(!MS.lyr||MS.lyr.id!==t.id)return'<div class="ms-lyr" id="ms-lyr"><p class="cur">歌词加载中…</p></div>';
  const Ls=MS.lyr.lines;if(!Ls.length)return'<div class="ms-lyr" id="ms-lyr"><p class="cur">暂无歌词</p></div>';
  const i=msLyricIdx(),g=k=>(Ls[k]?esc(Ls[k].text):'');
@@ -8487,7 +8575,7 @@ function msLyricTick(){
 function msSnapshot(){
  const t=MS.cur;if(!t)return null;
  const o={title:t.title,artist:t.artist,positionSeconds:Math.floor(MSA.currentTime||0),playing:!!MS.playing};
- if(t.src==='qq'){
+ if(msHasLyrics(t)){
   const Ls=MS.lyr&&MS.lyr.id===t.id?MS.lyr.lines:null;
   if(Ls&&Ls.length){const i=msLyricIdx();o.previousLine=i>0?Ls[i-1].text:'';o.currentLine=i>=0?Ls[i].text:'';o.nextLine=Ls[i+1]?Ls[i+1].text:''}
   else o.lyricsAvailable=false
@@ -8523,7 +8611,7 @@ function msEdit(t){
 }
 function msTrackMenu(key){
  const[k,i]=key.split(':'),t=msList(k)[+i];if(!t)return;const inl=msM().lib.some(x=>x.id===t.id),items=[{label:'播放',run:()=>msPlay(msList(k),+i)},{label:inl?'从资料库移除':'添加到资料库',run:()=>{msToggleLib(t);msRender()}}];
- if(inl&&t.src!=='itunes'&&t.src!=='qq')items.push({label:'编辑信息',run:()=>msEdit(t)});
+ if(inl&&!msRemoteTrack(t))items.push({label:'编辑信息',run:()=>msEdit(t)});
  items.push({label:'分享到聊天',run:()=>msShare(t)});
   items.push({label:'取消'});msSheet(items);
 }
@@ -8585,7 +8673,7 @@ MSA.addEventListener('error',async()=>{
 MSA.addEventListener('timeupdate',()=>{msProgress();msLyricTick()});MSA.addEventListener('seeked',msLyricTick);
 document.addEventListener('input',e=>{
  if(e.target.id==='ms-seek'){MS.seeking=true;const d=MSA.duration;if(d){const a=$('#ms-t1');if(a)a.textContent=msFmt(e.target.value/1000*d)}}
- if(e.target.id==='ms-q'){clearTimeout(MS.dt);const v=e.target.value;MS.dt=setTimeout(()=>msSearch(v),450)}
+ if(e.target.id==='ms-q'){MS.q=e.target.value;clearTimeout(MS.dt);MS.searchAbort?.abort();++MS.sid;MS.loading=0;MS.err='';MS.results=[];if(qqOn()&&!MS.gdSearch){const v=MS.q;MS.dt=setTimeout(()=>msSearch(v),600)}msResultsDraw()}
 });
 document.addEventListener('change',e=>{if(e.target.id==='ms-seek'){const d=MSA.duration;if(d)MSA.currentTime=e.target.value/1000*d;MS.seeking=false}});
 document.addEventListener('keydown',e=>{if(e.target.id==='ms-q'&&e.key==='Enter'){e.preventDefault();clearTimeout(MS.dt);msSearch(e.target.value);e.target.blur()}});
@@ -8597,8 +8685,10 @@ $('#v-music').addEventListener('click',e=>{
  if(q('[data-ms-favs]')){MS.tab=3;MS.searching=false;MS.sub={type:'fav',title:'已收藏',key:null};MS.reset=1;msRender();return}
  if(x=q('[data-ms-album]')){msPlayAlbum(x.dataset.msAlbum);return}
  if(q('[data-ms-retry]')){MS.discErr='';msLoadDisc(true);msRender();return}
+ if(q('[data-ms-submit]')){clearTimeout(MS.dt);msSearch($('#ms-q').value);return}
+ if(x=q('[data-ms-source]')){clearTimeout(MS.dt);MS.gdSearch=x.dataset.msSource==='gd';msRender();msSearch(MS.q);return}
  if(q('[data-ms-searchcancel]')){MS.searching=false;MS.reset=1;msRender();return}
- if(x=q('[data-ms-artist]')){const a=x.dataset.msArtist,l=[...msM().recent,...msM().lib].filter(t=>t.artist===a&&(t.url||t.src==='qq'||t.src==='file'||t.src==='url'));if(l.length){const s=new Set();msPlay(l.filter(t=>{if(s.has(t.id))return false;s.add(t.id);return true}),0)}else{MS.tab=1;MS.searching=true;MS.q=a;MS.reset=1;msRender();msSearch(a)}return}
+ if(x=q('[data-ms-artist]')){const a=x.dataset.msArtist,l=[...msM().recent,...msM().lib].filter(t=>t.artist===a&&msCanPlay(t));if(l.length){const s=new Set();msPlay(l.filter(t=>{if(s.has(t.id))return false;s.add(t.id);return true}),0)}else{MS.tab=1;MS.searching=true;MS.q=a;MS.reset=1;msRender();msSearch(a)}return}
  if(q('[data-ms-toggle]')){e.stopPropagation();if(MSA.paused)MSA.play().catch(()=>{});else MSA.pause();return}
  if(q('[data-ms-mode]')){e.stopPropagation();const m=msM(),o=['list','one','shuffle'];m.mode=o[(o.indexOf(m.mode||'list')+1)%3];save();toast(MS_MODES[m.mode][0]);msRender();return}
  if(q('[data-ms-next]')){e.stopPropagation();msNext(1);return}
@@ -12457,6 +12547,8 @@ html.kb #inp,html.kb .wx-in,html.kb .feed-composer,html.kb .pd-composer{padding-
 .ms-qqbar{display:flex;gap:10px;padding:10px 20px 2px}
 .ms-qqbar button{flex:1;padding:11px 6px;border-radius:12px;background:var(--c);font-size:15px;font-weight:600;color:var(--r)}
 .ms-retry.alt{background:var(--c);color:var(--r)}
+.ms-chips button[aria-pressed=true]{outline:1px solid currentColor}
+.ms-note a{color:inherit;text-decoration:underline}
 .ms-qr{position:fixed;inset:0;z-index:10200;background:rgba(0,0,0,.55);display:grid;place-items:center}
 .ms-qr .box{background:#fff;color:#111;border-radius:20px;padding:20px;width:min(86vw,320px);text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center}
 .ms-qr img{width:200px;height:200px;image-rendering:pixelated;background:#fff;border-radius:10px;object-fit:contain}

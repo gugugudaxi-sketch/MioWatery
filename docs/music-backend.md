@@ -4,7 +4,7 @@
 
 > 后端代码在 `server/music/main.py`，基于开源库 [qqmusic-api-python](https://github.com/luren-dc/QQMusicApi)。你也可以自己写后端，只要符合下面「接口约定」一节，小手机就能连上。
 
-不部署也能用音乐应用：不连接时，搜歌走 iTunes 搜索，资料库可以导入本地文件或链接。
+不部署也能听歌。打开音乐的「新发现」搜索歌曲，默认用 [GD 音乐台](https://music.gdstudio.xyz/) 提供的音源，搜不到时可使用 iTunes 试听。资料库也可以导入本地文件或链接。
 
 ## 一、准备
 
