@@ -5,13 +5,19 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 // 点通知：回到小手机，并打开对应聊天
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const pid = (e.notification.data || {}).pid || '';
+  const { pid = '', profile = '', view } = e.notification.data || {};
+  const offline = view === 'offline';
   e.waitUntil((async () => {
     const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of list) {
-      if ('focus' in c) { await c.focus(); c.postMessage({ type: 'open-chat', pid }); return; }
+      if ('focus' in c) { await c.focus(); c.postMessage({ type: 'open-chat', pid, view, profile }); return; }
     }
-    if (self.clients.openWindow) await self.clients.openWindow('./' + (pid ? '?openChat=' + encodeURIComponent(pid) : ''));
+    if (self.clients.openWindow) {
+      const params = new URLSearchParams();
+      if (pid) params.set(offline ? 'openOffline' : 'openChat', pid);
+      if (offline && profile) params.set('profile', profile);
+      await self.clients.openWindow('./' + (params.size ? '?' + params : ''));
+    }
   })());
 });
 

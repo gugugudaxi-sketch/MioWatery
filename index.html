@@ -3429,6 +3429,7 @@ function ofSys(p){
 async function ofGen(mode,note,idx){
   if(OF.busy)return toast('正在生成中，请稍等');
   const p=P(ofS().char),d=ofD();if(!p||!d)return;if(!S.cfg.key)return toast('请先在设置里填写 API Key');
+  const profile=S.activeUserProfile;
   const removed=[],sep=ofForeign(p)?'\n':'\n\n';let base='';
   if(mode==='redo'){if(typeof idx==='number'&&idx>=0&&idx<d.msgs.length){d.msgs.splice(idx).reverse().forEach(m=>removed.push(m))}while(d.msgs.length&&d.msgs[d.msgs.length-1].role==='assistant')removed.push(d.msgs.pop())}
   if(mode==='cont'){const l=d.msgs[d.msgs.length-1];if(l&&l.role==='assistant')base=l.content;else mode='reply'}
@@ -3445,7 +3446,7 @@ async function ofGen(mode,note,idx){
     const out=ofScrub(String(await ask([{role:'system',content:ofSys(p)},...hist],t=>{OF.lt=base?base+sep+t:t;draw(OF.lt)},undefined,undefined,OF.ctl.signal)||'').trim());
     if(!out)throw new Error('模型没有返回内容');
     if(base){const l=d.msgs[d.msgs.length-1];l.content=base+sep+out}else d.msgs.push({role:'assistant',content:out,t:Date.now()});
-    save();
+    if(await save()){try{notifyMsg(p.id,{content:ofZh(out)},{view:'offline',profile})}catch(e){console.warn('线下通知失败',e)}}
   }catch(e){removed.reverse().forEach(m=>d.msgs.push(m));save();toast(OF.stopped||(e&&e.name==='AbortError')?'已终止':'线下回复失败：'+e.message)}
   finally{OF.busy=0;OF.ctl=null;OF.stopped=0;OF.draw=null;OF.lt='';ofRender()}
   ofAutoSum();
@@ -7503,14 +7504,31 @@ for(const event of ['pointerup','keydown'])document.addEventListener(event,()=>{
 
 let unreadN=0;
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){unreadN=0;try{const r=navigator.clearAppBadge&&navigator.clearAppBadge();r&&r.catch&&r.catch(()=>{})}catch(e){}document.title='Mio水汪汪'}});
-function notifyMsg(pid,m){
+function openNotifiedChat(pid,target={}){
+ const p=P(pid);if(!p)return;
+ if(target.view==='offline'){
+  const profile=target.profile||S.activeUserProfile;
+  const u=S.userProfiles.find(x=>x.id===profile);
+  if(!u||p.blocked||p.boundUser!==profile)return toast('这个线下聊天已不可用');
+  if(profile!==S.activeUserProfile){
+   switchUser(profile);
+   S.me={name:u.name||'',handle:u.handle||'',bio:u.bio||'',avatar:u.avatar||''};
+  }
+  const o=ofS();o.char=pid;o.tab='main';save();
+  go('offline',stack[stack.length-1]!=='offline');
+ }else{cur=pid;go('chat')}
+}
+function notifyMsg(pid,m,target={}){
  if(S.cfg.notifyPopup===false)return;const p=P(pid);if(!p)return;
- if(stack[stack.length-1]==='chat'&&cur===pid&&!document.hidden)return;
- const txt=String(m.content||'').replace(/\s+/g,' ').slice(0,80)||'[新消息]';if(S.cfg.keepAlive&&kaA)kaMeta(p.name,txt);
- if(document.hidden){unreadN++;try{const r=navigator.setAppBadge&&navigator.setAppBadge(unreadN);r&&r.catch&&r.catch(()=>{})}catch(e){}document.title='('+unreadN+') Mio水汪汪';xsjSysNotify(p,txt,pid);return}
+ const offline=target.view==='offline',page=stack[stack.length-1];
+ const viewing=offline?page==='offline'&&ofS().tab!=='fan'&&ofS().char===pid&&S.activeUserProfile===target.profile:page==='chat'&&cur===pid;
+ if(viewing&&!document.hidden)return;
+ const title=offline?p.name+' · 线下聊天':p.name;
+ const txt=String(m.content||'').replace(/\s+/g,' ').slice(0,80)||'[新消息]';if(S.cfg.keepAlive&&kaA)kaMeta(title,txt);
+ if(document.hidden){unreadN++;try{const r=navigator.setAppBadge&&navigator.setAppBadge(unreadN);r&&r.catch&&r.catch(()=>{})}catch(e){}document.title='('+unreadN+') Mio水汪汪';xsjSysNotify(p,txt,pid,target,title);return}
  let b=$('#ban');if(!b){b=document.createElement('div');b.id='ban';document.body.appendChild(b)}
- b.innerHTML=`<div class="av">${av(p)}</div><div class="bt"><b>${esc(p.name)}</b><span>${esc(txt)}</span></div>`;
- b.onclick=()=>{b.classList.remove('on');cur=pid;go('chat')};
+ b.innerHTML=`<div class="av">${av(p)}</div><div class="bt"><b>${esc(title)}</b><span>${esc(txt)}</span></div>`;
+ b.onclick=()=>{b.classList.remove('on');openNotifiedChat(pid,target)};
  requestAnimationFrame(()=>b.classList.add('on'));clearTimeout(notifyMsg.t);notifyMsg.t=setTimeout(()=>b.classList.remove('on'),4800);
 }
 let notificationRegistration;
@@ -7523,23 +7541,31 @@ async function xsjNotificationWorker(){
  });
  return null;
 }
-async function xsjSysNotify(p,txt,pid){
+async function xsjSysNotify(p,txt,pid,target={},title=p.name){
  if(!('Notification' in window)||Notification.permission!=='granted')return false;
- const o={body:txt,tag:'msg-'+pid,renotify:true,icon:'icon-192.png?v=1eee1f6',vibrate:[120,60,120],timestamp:Date.now(),data:{pid}};
+ const o={body:txt,tag:(target.view==='offline'?'offline-'+(target.profile||'')+'-':'msg-')+pid,renotify:true,icon:'icon-192.png?v=1eee1f6',vibrate:[120,60,120],timestamp:Date.now(),data:{pid,...target}};
  const a=p&&p.avatar;if(typeof a==='string'&&/^https:\/\//.test(a))o.icon=a;
  try{
   const reg=await xsjNotificationWorker();
-  if(reg){await reg.showNotification(p.name,o);return true}
+  if(reg){await reg.showNotification(title,o);return true}
  }catch(e){console.warn('Service Worker 通知失败',e)}
- try{const n=new Notification(p.name,o);n.onclick=()=>{window.focus();if(pid&&P(pid)){cur=pid;go('chat')}n.close()};return true}
+ try{const n=new Notification(title,o);n.onclick=()=>{window.focus();if(pid)openNotifiedChat(pid,target);n.close()};return true}
  catch(e){console.warn('系统通知失败',e);return false}
 }
 window.xsjSysNotify=xsjSysNotify;
 if('serviceWorker' in navigator&&window.isSecureContext){
  notificationRegistration=navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(e=>{console.warn('通知后台服务注册失败',e);return null});
- navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};if(d.type==='open-chat'&&d.pid&&P(d.pid)){cur=d.pid;go('chat')}});
+ navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};if(d.type==='open-chat'&&d.pid)openNotifiedChat(d.pid,d)});
 }
-try{const q=new URLSearchParams(location.search).get('openChat');if(q)setTimeout(()=>{try{if(P(q)){cur=q;go('chat')}history.replaceState(null,'',location.pathname)}catch(e){}},1200)}catch(e){}
+try{
+ const params=new URLSearchParams(location.search),offline=params.get('openOffline'),pid=offline||params.get('openChat');
+ if(pid)setTimeout(()=>{
+  try{
+   openNotifiedChat(pid,offline?{view:'offline',profile:params.get('profile')}:undefined);
+   history.replaceState(null,'',location.pathname)
+  }catch(e){}
+ },1200)
+}catch(e){}
 {const g0=gen;gen=async function(){const pid=cur,n0=(S.chats[pid]||[]).length;await g0.apply(this,arguments);const h=S.chats[pid]||[],m=h[h.length-1];if(h.length>n0&&m&&m.role==='assistant'){notifyMsg(pid,m);try{dyAutoNote(pid)}catch(e){}}}}
 /* ===== v9.57 主动发消息 / 接着说 ===== */
 const ANTI_ECHO='【不要复述用户的话，每次回复都必须遵守】1. 不要把用户刚说的话原样重复、换个说法重述，也不要用「你是说……」「你刚才说……」「也就是说……」「所以你……」这类句式把用户的意思再总结一遍；用户自己知道自己说了什么。2. 不要先复述或确认用户的话再回答，第一句就给出你自己的反应：想法、情绪、新信息、追问、动作，或把事情往前推一步。3. 只有确有必要时才引用用户的原话，比如反驳、翻旧账、接梗，而且最多引用几个字，并立刻带出你自己的新内容。4. 每条回复都要比用户的话多提供一点新东西（观点、细节、感受、问题、话题推进），不要只是附和、同义反复，或把对方当镜子照回去。5. 对你自己说过的话同理：不要换种说法重复自己，也不要把旁白里已经写出的动作再用台词讲一遍。';
