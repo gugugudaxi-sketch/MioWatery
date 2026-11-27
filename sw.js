@@ -20,6 +20,6 @@ self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) {}
   e.waitUntil(self.registration.showNotification(d.title || 'Mio水汪汪', {
-    body: d.body || '', tag: d.tag || 'push', data: d.data || {}, icon: d.icon || 'icon-192.png', renotify: true
+    body: d.body || '', tag: d.tag || 'push', data: d.data || {}, icon: d.icon || 'icon-192.png?v=1eee1f6', renotify: true
   }));
 });
