@@ -5381,20 +5381,53 @@ async function linksPrefetch(h){
 }
 const R={iff:()=>iffRender(),mcp:()=>mcpRender(),preset:()=>prRender(),offline:()=>ofRender(),msgs:()=>msgRender(),couple:()=>cpRender(),coread:()=>crRender(),crread:()=>crReadRender(),music:()=>msRender(),wallet:()=>wlRender(),life:()=>lifeRender(),home:rHome,app:rApp,prof:rProf,chat:draw,deco:rDeco,cset:rCset,css:rCss,personas:rPersonas,worlds:rWorlds,settings:rSettings,roleprompt:rSettings,diary:rDiary,stickers:rProfileStickers,postdetail:rPostDetail,rolephones:rolePhoneRender,desktopcustom:renderDesktopCustomizer};
 function go(v,push=true){if(v==='chat'&&!P(cur))return;if(v==='chat')S.cfg.lastChat=cur;if(v==='settings'&&stack[stack.length-1]!=='settings')settingsPage='main';if(v!=='chat')$('#ucss').textContent='';if(v!=='offline'){const oe=document.getElementById('ofcss');if(oe)oe.textContent=''}
-  $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));if(push)stack.push(v);R[v]()}
-function back(){if(stack[stack.length-1]==='cset'&&csetPage==='memory'){csetPage='main';rCset();return}if(stack[stack.length-1]==='settings'&&settingsPage!=='main'){settingsPage='main';rSettings();return}stack.pop();go(stack[stack.length-1]||'home',false)}
-// 从左边缘向右滑，复用页面现有的返回逻辑。
+  $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));if(push)stack.push(v);if(stack.length>1)armPwaBack();R[v]()}
+function back(){if(stack[stack.length-1]==='cset'&&csetPage==='memory'){csetPage='main';rCset();return}if(stack[stack.length-1]==='settings'&&settingsPage!=='main'){settingsPage='main';rSettings();return}if(stack.length>1){stack.pop();go(stack[stack.length-1],false)}}
+// 在 Android 安装版里，让系统返回手势先处理应用内的页面。
+const armPwaBack=(function setupPwaBack(){
+ if(!/Android/i.test(navigator.userAgent)||!matchMedia('(display-mode: standalone)').matches||
+    typeof window.CloseWatcher!=='function')return ()=>{};
+ const exitWindow=1800;
+ let watcher,rearmTimer;
+
+ function watch(){
+  if(watcher)return;
+  clearTimeout(rearmTimer);
+  watcher=new window.CloseWatcher();
+  watcher.addEventListener('close',()=>{
+   watcher=null;
+   const cancel=$('#modal.on .no');
+   if(cancel){
+    cancel.click();
+   }else if(stack[stack.length-1]==='chat'&&multiSelectMode){
+    exitMultiSelect();
+   }else if(stack.length>1){
+    back();
+   }else{
+    toast('从屏幕内侧滑动可翻页，再按一次系统返回可退出',exitWindow);
+    rearmTimer=setTimeout(watch,exitWindow);
+    return;
+   }
+   watch();
+  },{once:true});
+ }
+
+ watch();
+ return watch;
+})();
+
+// 从左侧内缘向右滑，复用页面现有的返回逻辑。
 (function setupEdgeBack(){
- const edgeWidth=44, minDistance=64;
- const controls='input,textarea,select,[contenteditable],button,a,canvas,[data-noswipe]';
+ const minInset=24, maxInset=112, minDistance=64;
+ const controls='input,textarea,select,[contenteditable],canvas,video,audio,[data-noswipe]';
  let start=null;
  document.addEventListener('touchstart',e=>{
   start=null;
   if(e.touches.length!==1||window.getSelection()?.toString()||e.target.closest(controls))return;
   const view=e.target.closest('.view.on'),touch=e.touches[0];
   if(!view||view.id==='v-home'||stack.length<2||(view.id==='v-chat'&&multiSelectMode))return;
-  const edge=touch.clientX-view.getBoundingClientRect().left;
-  if(edge<0||edge>edgeWidth)return;
+  const bounds=view.getBoundingClientRect(), inset=touch.clientX-bounds.left;
+  if(inset<minInset||inset>Math.min(maxInset,bounds.width*.3))return;
   start={view,x:touch.clientX,y:touch.clientY,id:touch.identifier,locked:false};
  },{passive:true});
  document.addEventListener('touchmove',e=>{
@@ -5406,7 +5439,8 @@ function back(){if(stack[stack.length-1]==='cset'&&csetPage==='memory'){csetPage
    start.locked=true;
    if(start.view.id==='v-chat'&&msgPressTimer){clearTimeout(msgPressTimer);msgPressTimer=null}
   }
- },{passive:true});
+  if(start.locked&&e.cancelable)e.preventDefault();
+ },{passive:false});
  document.addEventListener('touchend',e=>{
   const swipe=start;start=null;
   if(!swipe?.locked||!swipe.view.classList.contains('on'))return;
