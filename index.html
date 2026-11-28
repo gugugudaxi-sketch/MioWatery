@@ -3495,16 +3495,112 @@ function ofRedoDlg(idx){
   ov.querySelector('[data-ok]').onclick=()=>{const t=ov.querySelector('#of-rd-p').value.trim();ov.remove();ofGen('redo',t,typeof idx==='number'?idx:undefined)};
   setTimeout(()=>{const t=ov.querySelector('#of-rd-p');if(t)t.focus()},30);
 }
-async function ofSummarize(){
-  const p=P(ofS().char),d=ofD();if(!p||!d)throw new Error('先选择角色');
-  const seg=d.msgs.slice(d.lastSum||0);if(seg.length<2)throw new Error('线下内容太少，暂时不用总结');
-  const tr=seg.map(m=>(m.role==='user'?(S.me.name||'我'):p.name)+': '+ofZh(m.content)).join('\n').slice(-30000);
-  const sec={base:(S.cfg.secondaryBase||'').trim()||S.cfg.base,key:(S.cfg.secondaryKey||'').trim()||S.cfg.key,model:(S.cfg.secondaryModel||'').trim()||S.cfg.model,temp:0.2,stream:false};
-  if(!sec.base||!sec.key||!sec.model)throw new Error('请先在「设置 → 模型与 API」配置主 API');
-  const ins='今天是'+new Date().toLocaleDateString('zh-CN')+'。你是线下见面的记忆整理助手。下面是用户和角色线下面对面的互动。写一张给“下一段的自己”看的纸条，严格按格式输出，不要开场白：\n【睁开眼】一行：此刻在哪、气氛如何、还欠对方一句什么。\n【事实】3～6条，每条以具体日期开头；只写线下发生的确定事件、关系变化、称呼、约定，区分谁说的，不臆测。\n【答应过】没做到的承诺和未解决的事。\n【没说完的】话到一半、情绪没收的地方。\n全文不超过600字。';
-  const text=await ask([{role:'system',content:ins},{role:'user',content:'角色：'+p.name+'\n已有线下记忆（避免重复）：\n'+d.mem.slice(-3).map(m=>m.text).join('\n')+'\n\n本次线下内容：\n'+tr+'\n\n请生成一条新的纸条。'}],null,{max_tokens:1800},sec);
-  if(!String(text||'').trim())throw new Error('模型返回了空总结');
-  d.mem.push({id:uid(),text:String(text).trim(),createdAt:Date.now(),from:d.lastSum||0,to:d.msgs.length,sc:d.sceneNo||0});d.lastSum=d.msgs.length;save();return seg.length;
+function ofMemoryDate(timestamp){
+ if(!Number.isFinite(timestamp)||timestamp<=0)return '';
+ const date=new Date(timestamp);
+ if(!Number.isFinite(date.getTime()))return '';
+ const pad=n=>String(n).padStart(2,'0');
+ return date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate());
+}
+function ofMemorySource(messages){
+ return messages.map(message=>({
+  message,date:ofMemoryDate(message.t),role:message.role,content:message.content,t:message.t
+ }));
+}
+function ofMemorySourceMatches(source,messages,from){
+ return source.every((entry,i)=>{
+  const m=messages[from+i];
+  return m===entry.message&&m.content===entry.content&&m.t===entry.t&&m.role===entry.role;
+ });
+}
+function ofParseMemorySummary(raw,source){
+ const text=String(raw||'').trim();
+ const match=text.match(/^【睁开眼】\s*([\s\S]+?)\s*【事实】\s*([\s\S]+?)\s*【答应过】\s*([\s\S]+?)\s*【没说完的】\s*([\s\S]+?)\s*【总结完成】$/);
+ if(!match||match.slice(1).some(part=>!part.trim()))return '';
+ const dates=new Set(source.map(m=>m.date||'日期未记录'));
+ const facts=match[2].trim().split(/\n+/).map(line=>line.trim()).filter(Boolean);
+ const valid=facts.every(line=>{
+  const fact=line.match(/^(?:[-*]\s*|\d+[.、)）]\s*)?(\d{4}-\d{2}-\d{2}|日期未记录)[：:]\s*\S/);
+  return fact&&dates.has(fact[1]);
+ });
+ return valid?text.replace(/\s*【总结完成】$/,''):'';
+}
+async function ofWriteMemorySummary(p,source,previous){
+ const sec=rolePhoneConfig();sec.temp=.2;
+ if(!sec.base||!sec.key||!sec.model)throw new Error('请先在「设置 → 模型与 API」配置模型');
+ const transcript=source.map(m=>'['+(m.date||'日期未记录')+'] '+(m.role==='user'?(S.me.name||'我'):p.name)+'：'+ofZh(m.content)).join('\n');
+ const instructions='你是线下记忆整理助手。只根据本次线下记录总结，同一幕的剧情可以连续。方括号是每条消息的本地记录日期，和剧情里的时间是两回事；不要使用你生成总结的日期，也不要自行换算昨晚、今天等说法。事实只能使用支持该事件的记录日期。跨日时分开写。无有效日期时写日期未记录。记录中明确提及更早的事，可在事实正文注明，不要把转述当作当天新发生的事。已有记忆仅用于去重，禁止用来推定日期或补写本次不存在的事实。\n'
+  +'按顺序写四段。\n【睁开眼】一句交代最后的场景和状态。\n【事实】1～6 条确定事实，每条独占一行，以“YYYY-MM-DD：”或“日期未记录：”开头，不加序号。\n【答应过】承诺和未解决的事，没有就写无。\n【没说完的】未说完的事，没有就写无。\n'
+  +'全文不超过600字。四段写完后，最后单独一行输出【总结完成】。';
+ const context=previous.map(m=>m.text).filter(Boolean).join('\n').slice(-2200);
+ const input=(context?'已有记忆（仅查重）：\n'+context+'\n\n':'')+'本次线下记录：\n'+transcript;
+ for(const max_tokens of [1800,3600]){
+  const meta={};
+  const output=await ask([{role:'system',content:instructions},{role:'user',content:input}],null,{max_tokens},sec,undefined,meta);
+  if(meta.finishReason==='content_filter')throw new Error('模型未返回完整总结');
+  if(meta.finishReason==='length'||meta.finishReason==='max_tokens')continue;
+  const text=ofParseMemorySummary(output,source);
+  if(text)return text;
+ }
+ throw new Error('模型回复不完整，或事实日期与原记录不符。原记忆和总结进度已保留');
+}
+async function ofSummarize(fromStart=false){
+ const p=P(ofS().char),d=ofD();if(!p||!d)throw new Error('先选择角色');
+ const oldProgress=d.lastSum,start=fromStart?0:(oldProgress||0),scene=d.sceneNo||0;
+ const messages=d.msgs,source=ofMemorySource(messages.slice(start));
+ if(source.length<2)throw new Error('线下内容太少，暂时不用总结');
+ const previous=fromStart?[]:d.mem.slice(-3);
+ const pending=[];
+ let from=start,group=[],size=0;
+ for(const entry of source){
+  const length=String(entry.content||'').length+40;
+  if(group.length>=2&&size+length>30000){
+   pending.push({from,entries:group});from+=group.length;group=[];size=0;
+  }
+  group.push(entry);size+=length;
+ }
+ pending.push({from,entries:group});
+ const notes=[];
+ for(const part of pending){
+  const text=await ofWriteMemorySummary(p,part.entries,[...previous,...notes].slice(-3));
+  notes.push({id:uid(),text,createdAt:Date.now(),from:part.from,to:part.from+part.entries.length,sc:scene,
+   firstAt:part.entries[0].t,lastAt:part.entries.at(-1).t});
+ }
+ if(d.msgs!==messages||(d.sceneNo||0)!==scene||d.lastSum!==oldProgress||!ofMemorySourceMatches(source,messages,start))throw new Error('这段线下记录已变化，请重新总结');
+ d.mem.push(...notes);d.lastSum=start+source.length;
+ if(!await save()){
+  d.mem=d.mem.filter(m=>!notes.includes(m));
+  if(d.lastSum===start+source.length)d.lastSum=oldProgress;
+  throw new Error('线下记忆保存失败');
+ }
+ return source.length;
+}
+function ofMemoryRange(d,note){
+ const scene=Number.isInteger(note.sc)?note.sc:0;
+ const messages=scene===(d.sceneNo||0)?d.msgs:d.scenes.find(s=>s.no===scene+1)?.msgs;
+ const {from,to}=note;
+ if(!messages||!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<=from||to>messages.length)return null;
+ if(note.firstAt!==undefined&&messages[from].t!==note.firstAt)return null;
+ if(note.lastAt!==undefined&&messages[to-1].t!==note.lastAt)return null;
+ if(note.createdAt&&messages.slice(from,to).some(m=>m.t>note.createdAt))return null;
+ return {messages,from,to};
+}
+async function ofRegenerateMemory(p,d,note,canReplace){
+ if(OF.mem||OF.busy)throw new Error('线下正在生成，请稍等');
+ const range=ofMemoryRange(d,note);
+ if(!range)throw new Error('找不到这条记忆对应的完整聊天记录');
+ const {messages,from,to}=range,source=ofMemorySource(messages.slice(from,to)),old=note.text;
+ OF.mem=1;
+ try{
+  const text=await ofWriteMemorySummary(p,source,[]);
+  if(!d.mem.includes(note)||note.text!==old||ofMemoryRange(d,note)?.messages!==messages||!ofMemorySourceMatches(source,messages,from)||!canReplace())throw new Error('记忆或原记录已修改，请重新总结');
+  note.text=text;
+  if(!await save()){
+   if(note.text===text)note.text=old;
+   throw new Error('线下记忆保存失败');
+  }
+  return text;
+ }finally{OF.mem=0}
 }
 async function ofAutoSum(){const d=ofD();if(!d||d.auto===false||OF.mem||OF.busy)return;if(d.msgs.length-(d.lastSum||0)<(d.every||30))return;OF.mem=1;try{await ofSummarize();toast('已自动总结线下记忆');if($('#of-memb'))ofRender()}catch(e){toast('线下记忆总结失败：'+e.message)}finally{OF.mem=0}}
 function ofCardMenu(o){const old=document.getElementById('of-cm');if(old)old.remove();const m=document.createElement('div');m.id='of-cm';
@@ -3535,16 +3631,27 @@ function ofMemMenu(){
 }
 function ofMemView(cb){
   const d=ofD(),w=$('#v-offline .of-wrap');if(!d||!w)return;const ov=document.createElement('div');ov.className='of-ov';
-  const paint=()=>{ov.innerHTML=`<div class="of-top"><h1><button class="of-bk" id="of-ovx" type="button">线下记忆</button></h1></div><div class="of-fan">${d.mem.length?d.mem.map((m,i)=>`<div class="of-card"><small>记忆 ${i+1} · ${m.createdAt?new Date(m.createdAt).toLocaleDateString('zh-CN'):'日期未知'}</small><textarea rows="6" data-t="${m.id}" style="margin-top:8px;max-height:none">${esc(m.text||'')}</textarea><div class="of-ops"><button class="of-mini" data-s="${m.id}" type="button">保存修改</button><button class="of-mini" data-d="${m.id}" type="button">删除</button></div></div>`).join(''):'<p class="of-empty">还没有线下记忆。</p>'}</div>`;
+  const paint=()=>{ov.innerHTML=`<div class="of-top"><h1><button class="of-bk" id="of-ovx" type="button">线下记忆</button></h1></div><div class="of-fan">${d.mem.length?d.mem.map((m,i)=>`<div class="of-card"><small>记忆 ${i+1} · ${m.createdAt?'总结于 '+new Date(m.createdAt).toLocaleDateString('zh-CN'):'总结日期未知'}</small><textarea rows="6" data-t="${m.id}" style="margin-top:8px;max-height:none">${esc(m.text||'')}</textarea><div class="of-ops"><button class="of-mini" data-s="${m.id}" type="button">保存修改</button>${ofMemoryRange(d,m)?`<button class="of-mini" data-of-resummarize="${m.id}" type="button">重新总结这条</button>`:''}<button class="of-mini" data-d="${m.id}" type="button">删除</button></div></div>`).join(''):'<p class="of-empty">还没有线下记忆。</p>'}</div>`;
     ov.querySelector('#of-ovx').onclick=()=>{ov.remove();cb?cb():ofRender()};
     ov.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{const m=d.mem.find(x=>x.id===b.dataset.s),t=ov.querySelector('[data-t="'+b.dataset.s+'"]');if(m&&t){m.text=t.value;save();toast('已保存')}});
+    ov.querySelectorAll('[data-of-resummarize]').forEach(b=>b.onclick=async()=>{
+      const m=d.mem.find(x=>x.id===b.dataset.ofResummarize),p=P(ofS().char),field=b.closest('.of-card').querySelector('textarea');
+      if(!m||!p)return;
+      if(field.value!==m.text)return toast('请先保存当前编辑');
+      const unchanged=field.value;b.disabled=true;b.textContent='总结中…';
+      try{
+        const text=await ofRegenerateMemory(p,d,m,()=>field.value===unchanged);
+        field.value=text;toast('已重新总结这条记忆');
+      }catch(e){toast('总结失败：'+e.message)}
+      finally{b.disabled=false;b.textContent='重新总结这条'}
+    });
     ov.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(!confirm('删除这条记忆？'))return;d.mem=d.mem.filter(x=>x.id!==b.dataset.d);ofFixSum(d);save();paint()})};
   paint();w.appendChild(ov);
 }
 
 const OFP=[];
 function ofFixSum(d){const ms=d.mem.filter(m=>(m.sc||0)===(d.sceneNo||0));if(!ms.length){d.lastSum=0;return}const t=ms.map(m=>m.to).filter(x=>typeof x==='number');if(t.length)d.lastSum=Math.min(d.msgs.length,Math.max(...t))}
-async function ofSumNow(done){if(OF.mem)return toast('正在总结，请稍等');const d0=ofD();if(d0&&d0.msgs.length-(d0.lastSum||0)<2){if(d0.msgs.length<2)return toast('线下内容太少，暂时不用总结');if(!confirm('没有未总结的新内容。要从头重新总结全部线下记录吗？'))return;d0.lastSum=0}OF.mem=1;toast('开始总结，请稍等，不用重复点击');try{const n=await ofSummarize();toast('已生成线下记忆（读取 '+n+' 条）');done&&done()}catch(e){toast('总结失败：'+e.message)}finally{OF.mem=0}}
+async function ofSumNow(done){if(OF.mem)return toast('正在总结，请稍等');const d0=ofD();let fromStart=false;if(d0&&d0.msgs.length-(d0.lastSum||0)<2){if(d0.msgs.length<2)return toast('线下内容太少，暂时不用总结');if(!confirm('没有未总结的新内容。要从头重新总结全部线下记录吗？'))return;fromStart=true}OF.mem=1;toast('开始总结，请稍等，不用重复点击');try{const n=await ofSummarize(fromStart);toast('已生成线下记忆（读取 '+n+' 条）');done&&done()}catch(e){toast('总结失败：'+e.message)}finally{OF.mem=0}}
 function ofLen(d){const a=d.lenMin===undefined?150:(+d.lenMin||0),b=d.lenMax===undefined?400:(+d.lenMax||0);if(!a&&!b)return'篇幅不限，按情节自然决定长短，';if(a&&b)return'每次回复的正文控制在 '+a+'-'+b+' 字，';return b?'每次回复的正文不超过 '+b+' 字，':'每次回复的正文不少于 '+a+' 字，'}
 function ofPov(d){const n=S.me.name||'用户',k=d&&d.pov||'3';
   if(k==='1')return '用第一人称写：「我」就是你自己（角色），写你的动作、神态、心理和所见所闻，称呼用户为「你」或用户的名字（'+n+'）；每一句叙述都要写出主语（我/你），不要省略主语，不要写成没有主语的碎句。';
@@ -3706,12 +3813,12 @@ function rsnSplit(c,r){c=String(c||'');r=String(r||'');
   else{const k=c.search(/<\/think(?:ing)?>/i);if(k>=0&&!/<think/i.test(c.slice(0,k))){r=(r?r+'\n':'')+c.slice(0,k);c=c.slice(k).replace(/^<\/think(?:ing)?>/i,'')}}
   return{c:c.replace(/^\s+/,''),r:r.trim()}}
 function takeRsn(){const r=String(window.__rsn||'').trim();window.__rsn='';return r}
-async function ask(msgs,onD,opt,configOverride,signal){
+async function ask(msgs,onD,opt,configOverride,signal,responseMeta){
   const c=configOverride||S.cfg,r=await fetch((c.base||'').replace(/\/+$/,'')+'/chat/completions',{method:'POST',signal,
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
     body:JSON.stringify(Object.assign({model:c.model,temperature:+c.temp,stream:!!onD,messages:msgs},opt))});
   if(!r.ok){let m;try{m=(await r.json()).error.message}catch(e){}throw new Error(m||'HTTP '+r.status)}
-  if(!onD){const j=await r.json(),mg=j.choices[0].message,sp=rsnSplit(mg.content,mg.reasoning_content||mg.reasoning||mg.thinking||mg.reasoning_text);window.__rsn=sp.r;return sp.c.trim()}
+  if(!onD){const j=await r.json(),choice=j.choices[0],mg=choice.message;if(responseMeta)responseMeta.finishReason=choice.finish_reason;const sp=rsnSplit(mg.content,mg.reasoning_content||mg.reasoning||mg.thinking||mg.reasoning_text);window.__rsn=sp.r;return sp.c.trim()}
   const rd=r.body.getReader(),dec=new TextDecoder();let buf='',all='',rs0='';window.__rsn='';
   for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
     const ls=buf.split('\n');buf=ls.pop();
