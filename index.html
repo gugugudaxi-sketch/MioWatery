@@ -3389,22 +3389,41 @@ function ofCopy(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise
 function ofPickChar(){const b=momentBound();if(!b.length)return toast('当前用户还没有绑定的联系人');iosSheet({title:'选择线下的角色',items:b.map(p=>({label:p.name||'未命名',av:av(p),on:ofS().char===p.id,run:()=>{ofS().char=p.id;save();ofRender()}}))})}
 function ofPickUser(){iosSheet({title:'切换账号',items:S.userProfiles.map(u=>({label:u.name||'未命名',av:av(u),on:u.id===S.activeUserProfile,run:()=>{if(u.id===S.activeUserProfile)return;switchUser(u.id);S.me={name:u.name||'',handle:u.handle||'',bio:u.bio||'',avatar:u.avatar||''};const c=P(ofS().char);if(!c||c.boundUser!==u.id)ofS().char='';saveNow();ofRender();toast('已切换到 '+(u.name||'未命名'))}}))})}
 function hasCantoneseText(text){
- return /[佢唔冇嘅咗喺嗰啲嚟畀乜咩哋咁諗谂睇嘢啱喇攞嘥]|返工|搞掂|[係系]咪|就係|仲未|而家|点解|點解|唔该|唔該/.test(String(text||''));
+ const body=String(text||'').replace(/《[^》]*》|〈[^〉]*〉/gu,'');
+ return /[佢唔冇嘅咗喺嗰啲嚟畀乜咩哋咁諗谂睇嘢啱喇攞嘥]|搞掂|[係系]咪|就係|仲未|而家|点解|點解/.test(body);
+}
+function translationLanguageName(target){
+ if(target==='简体中文')return '简体字书面普通话';
+ if(target==='繁体中文')return '繁體字書面普通話';
+ return '「'+target+'」';
 }
 function cantoneseTranslationRule(target='简体中文'){
  if(target!=='简体中文'&&target!=='繁体中文')return '';
- return ' 先识别原文实际使用的语言。粤语即使用简体字写，也要按句意译成自然的书面普通话，译文使用'+(target==='繁体中文'?'繁体字':'简体字')+'。例如「我今日返工嗰阵，谂起佢讲嘅嘢」译成「我今天上班的时候，想起了他说的话」。保留原文语气、称呼和换行；不可照抄粤语或只转换字形。';
+ const example=target==='繁体中文'?'我今天上班的時候，想起了他說的話':'我今天上班的时候，想起了他说的话';
+ return ' 先识别原文实际使用的语言。粤语即使用简体字写，也要按句意译成'+translationLanguageName(target)+'，不可照抄或只转换字形。例：「我今日返工嗰阵，谂起佢讲嘅嘢」译为「'+example+'」。保留语气、称呼、专有名称和换行。';
+}
+const CANTONESE_SCRIPT_VARIANTS={
+ '陣':'阵','諗':'谂','講':'讲','話':'话','個':'个','點':'点','樣':'样','國':'国','與':'与',
+ '時':'时','間':'间','鐘':'钟','會':'会','頭':'头','體':'体','聽':'听','緊':'紧','覺':'觉',
+ '開':'开','關':'关','聲':'声','見':'见','過':'过','對':'对','這':'这','來':'来','係':'系',
+ '學':'学','書':'书','電':'电','畀':'俾'
+};
+function translationComparisonText(text){
+ return String(text||'').normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu,'').toLowerCase();
 }
 function usableTranslation(source,translation,target='简体中文'){
  if(typeof translation!=='string'||!translation.trim())return false;
  if((target!=='简体中文'&&target!=='繁体中文')||!hasCantoneseText(source))return true;
- const normalize=s=>String(s||'').replace(/[\s\p{P}\p{S}]/gu,'');
- return normalize(source)!==normalize(translation)&&!hasCantoneseText(translation);
+ // Dialect words can be legitimate in quoted titles and proper names.
+ // Reject a copy of the whole sentence, including common glyph-only conversions.
+ const normalize=text=>Array.from(translationComparisonText(text),ch=>CANTONESE_SCRIPT_VARIANTS[ch]||ch).join('');
+ const result=normalize(translation);
+ return !!result&&normalize(source)!==result;
 }
 const ofForeign=p=>{const c=p&&CC(p.id);return !!(c&&c.trOn&&(c.trOut||[]).length)};
 const ofZh=t=>String(t||'').split('\n').map(l=>{const k=l.indexOf('|||');return k<0?l:(l.slice(k+3).trim()||l.slice(0,k).trim())}).join('\n');
 function ofFmt(t){t=String(t||'');let r='',i=0,m;const re=/「[^」]*」|『[^』]*』|“[^”]*”|"[^"]*"/g;while((m=re.exec(t))){r+=esc(t.slice(i,m.index))+'<u class="of-q">'+esc(m[0])+'</u>';i=m.index+m[0].length}return r+esc(t.slice(i))}
-function ofRich(text){const t=String(text||'');if(!/\|\|\|/.test(t))return ofFmt(t).replace(/\n/g,'<br>');const d=ofD(),show=!d||d.showTr!==false;return t.split('\n').filter(l=>l.trim()).map(l=>{const k=l.indexOf('|||');if(k<0)return'<div class="of-zh">'+ofFmt(l.trim())+'</div>';const o=l.slice(0,k).trim(),z=l.slice(k+3).trim();return usableTranslation(o,z,S.cc[ofS().char]?.trTo||'简体中文')?'<div class="of-zh">'+ofFmt(o||z)+'</div>'+(show&&o?'<div class="of-or">'+ofFmt(z)+'</div>':''):'<div class="of-zh">'+ofFmt(o||z)+'</div>'}).join('')}
+function ofRich(text){const t=String(text||'');if(!/\|\|\|/.test(t))return ofFmt(t).replace(/\n/g,'<br>');const d=ofD(),show=!d||d.showTr!==false;return t.split('\n').filter(l=>l.trim()).map(l=>{const k=l.indexOf('|||');if(k<0)return'<div class="of-zh">'+ofFmt(l.trim())+'</div>';const o=l.slice(0,k).trim(),z=l.slice(k+3).trim();return z?'<div class="of-zh">'+ofFmt(o||z)+'</div>'+(show&&o?'<div class="of-or">'+ofFmt(z)+'</div>':''):'<div class="of-zh">'+ofFmt(o||z)+'</div>'}).join('')}
 function ofTrNote(p,fan){const c=CC(p.id),to=c.trTo||'简体中文';return '\n\n【外语与翻译格式】你（'+p.name+'）的设定语种是「'+c.trOut.join('、')+'」，'+(fan?'整篇番外':'对白和叙述')+'都用该语种写。按行（段落）输出，每一行写成：原文 ||| '+to+'译文。每一行都必须带译文，不能省略，译文要自然准确；||| 只用来分隔原文和译文，不要用在别处，也不要另外附加说明。'+(fan?'第一行标题也写成：标题原文 ||| 标题译文。':'')+cantoneseTranslationRule(to)}
 function ofApplyCss(){let e=document.getElementById('ofcss');if(!e){e=document.createElement('style');e.id='ofcss';document.head.appendChild(e)}e.textContent=(S.off&&S.off.css)||''}
 function ofRender(){
@@ -3744,7 +3763,7 @@ function build(p,h,split,opt){
   {const _pp=prFill('on',p,null,!!(opt&&opt.pre));if(_pp)sys+='\n\n【线上预设】\n'+_pp}
   if(cc.sys)sys+='\n\n'+cc.sys;
   if(manualMem.length)sys+='\n\n【传统记忆】\n'+manualMem.join('\n');
-  if(!(opt&&opt.noTr)&&cc.trOn&&(cc.trOut||[]).length)sys+='\n\n【输出语言】请用以下语言回复用户：'+cc.trOut.join('、')+'。'+(cc.trOut.length>1?'可以在同一条消息里自然地混用这些语言。':'')+'不要在回复里自行附带翻译或括号注释。';
+  if(!(opt&&opt.noTr)&&cc.trOn&&(cc.trOut||[]).length)sys+='\n\n【输出语言】请用以下语言回复用户：'+cc.trOut.join('、')+'。'+(cc.trOut.length>1?'可以在同一条消息里自然地混用这些语言。':'')+'不要把译文或括号注释夹在消息原文里。如果另有翻译格式要求，按要求将译文单独填写。';
   /* L2/L3 换段才变：最近几张纸条 */
   const _ne=(cc.memoryEntries||[]).filter(m=>m&&String(m.text||'').trim()),_old=_ne.filter(m=>m.merged),notes=_ne.filter(m=>!m.merged).slice(-NOTE_KEEP).map(m=>{const d=m.createdAt?new Date(m.createdAt).toLocaleDateString('zh-CN'):'';return(d?'['+d+'] ':'')+String(m.text).trim().slice(0,NOTE_CHARS)});
   if(_old.length)sys+='\n\n【早期记忆（旧纸条合并）】\n'+_old.map(m=>String(m.text).trim()).join('\n---\n').slice(-2400);
@@ -3886,7 +3905,7 @@ function rolePhoneStore(id){S.rolePhones=S.rolePhones||{};S.rolePhones[id]=S.rol
 function rolePhoneConfig(){return {base:(S.cfg.secondaryBase||'').trim()||S.cfg.base,key:(S.cfg.secondaryKey||'').trim()||S.cfg.key,model:(S.cfg.secondaryModel||'').trim()||S.cfg.model,temp:.85,stream:false}}
 function rolePhoneLanguage(p){
  const cc=CC(p.id),languages=cc.trOn?(cc.trOut||[]):[];
- const source=languages.length?'角色自己的原创文字使用「'+languages.join('、')+'」。':'角色自己的原创文字使用人设或日常对话中最自然的语言。';
+ const source='按人设和当前场景选择角色及其他说话者的语言。'+(languages.length?'角色的聊天用语设置「'+languages.join('、')+'」仅供参考。':'');
  return source+' 对每个要译的字段单独判断，只有已经是简体字书面普通话的内容才可省略译文。粤语角色的原文保留粤语，各条译文放在指定字段。'+cantoneseTranslationRule();
 }
 function rolePhonePrompt(p){return `今天是${new Date().toLocaleDateString('zh-CN')}。你正在模拟角色「${p.name}」的私人手机内容。${rolePhoneLanguage(p)}${S.me.bio?`用户「${S.me.name||'用户'}」的人设：${S.me.bio}。请让手机内容里的关系与称呼符合这份人设。`:''}请完全依据角色设定、角色简介、聊天上下文来创作，内容要像真实个人手机里的碎片，具体、有生活感、前后一致，不要解释自己是AI，不要写成设定分析。\n角色简介：${p.bio||'无'}\n角色人设：${p.prompt||'无'}\n与用户最近的聊天：${(((S.chats||{})[p.id]||H(p.id)||[])).slice(-18).map(m=>(m.role==='user'?'用户':'角色')+'：'+(m.content||'[多媒体]')).join('\n').slice(-7000)||'暂无聊天记录'}\n请保持角色口吻与已知事实，不要凭空改写双方关系。`}
@@ -3974,11 +3993,14 @@ function rolePhoneTranslationFields(app,data){
  const fields=[],rows=value=>Array.isArray(value)?value:[];
  const add=(record,key,...sourceKeys)=>{
   if(!record||typeof record!=='object')return;
-  const sourceKey=sourceKeys.find(k=>typeof record[k]==='string'&&record[k].trim());
-  if(!sourceKey)return;
+  const sourceKey=sourceKeys.find(k=>record[k]);
+  if(!sourceKey||typeof record[sourceKey]!=='string')return;
   const source=record[sourceKey];
-  const legacy=key==='tr'?record.translation||record.contentTr||record.reasonTr:key==='relationTr'?record.noteTr||record.tr:'';
-  if(hasCantoneseText(source)&&!usableTranslation(source,record[key]||legacy)){
+  const legacy={
+   message:record.translation,notes:record.contentTr,phone:record.noteTr||record.tr,shop:record.reasonTr
+  }[app];
+  const current=record[key]||(key==='tr'||key==='relationTr'?legacy:'');
+  if(hasCantoneseText(source)&&!usableTranslation(source,current)){
    fields.push({record,key,sourceKey,source,previous:record[key]});
   }
  };
@@ -5026,8 +5048,8 @@ const cpNext=()=>cpD.ann.filter(a=>!a.fixed).map(a=>({a,i:cpAnn(a)})).filter(x=>
 const cpBars=()=>{const un=cpD.cards.filter(c=>cpF.inbox(c)&&cpUnread(c)).sort((a,b)=>cpLast(b)-cpLast(a))[0],nx=cpNext(),p=cpPt()||{name:'TA'};let h='';if(un)h+=`<div class="cpw-note" data-act="opencard" data-id="${un.id}"><span><b>${esc(p.name)}</b> 在 ${cpTm(cpLast(un))} 更新了「${esc(un.msgs[0].t.slice(0,14))}」</span><a>查看</a></div>`;if(nx)h+=`<div class="cpw-note" data-act="nav" data-v="ann">${cpI('cal')}<span>距离「${esc(nx.a.name)}」${nx.i.left===0?'就是今天':'还有 '+nx.i.left+' 天'}</span></div>`;return h};
 const cpCpl=()=>{const p=cpPt()||{name:''},u=cpUser(),s=cpD.since||cpISO(new Date()),n=cpDiff(cpParse(s),cpDay(new Date()))+1,f=cpD.ann.find(x=>x.fixed);return `<div class="cpw-couple">${cpAv(u)}<div class="cpmid"><span>${esc(f?f.name:'在一起')}</span><b>${n}<i>天</i></b><small>${cpFmt(s)} 起</small></div>${cpAv(p)}</div>`};
 const cpTrP=new WeakSet(),cpSplit=t=>{const m=String(t).split(/\s*(?:\|\|\||｜｜｜)\s*/);return[m[0].trim(),(m.slice(1).join(' ')||'').trim()]};
-const cpTrB=o=>o.tr!==o.t&&usableTranslation(o.t,o.tr,S.cc[cpD.partner]?.trTo||'简体中文')?`<div class="cpw-tr">${esc(o.tr)}</div>`:cpTrP.has(o)?'<div class="cpw-tr">翻译中…</div>':'';
-const cpTrRule=p=>{const to=(CC(p.id).trTo)||'简体中文';return '\n【翻译格式】如果你这次写的内容不是'+to+'（包括粤语和混合语言），在全部内容之后紧跟 ||| 再写整段内容的'+to+'译文，格式：原文 ||| 译文；如果你写的就是'+to+'，完全不要写 |||。'+cantoneseTranslationRule(to)};
+const cpTrB=o=>o.tr&&o.tr!==o.t?`<div class="cpw-tr">${esc(o.tr)}</div>`:cpTrP.has(o)?'<div class="cpw-tr">翻译中…</div>':'';
+const cpTrRule=p=>{const to=(CC(p.id).trTo)||'简体中文';return '\n【翻译格式】如果你这次写的内容有需要译成'+translationLanguageName(to)+'的部分，在全部内容之后紧跟 ||| 再写整段内容的'+to+'译文，格式：原文 ||| 译文；原文已经是'+translationLanguageName(to)+'时，省略 ||| 和译文。'+cantoneseTranslationRule(to)};
 
 const cpPanel=(t,b,f='')=>`<div class="cpw-pn full"><div class="cpw-ph">${t}</div>${b}${f?`<div class="cpw-pf">${f}</div>`:''}</div>`;
 const cpUnread=c=>{const l=c.msgs.at(-1);return l.f==='c'&&l.ts>(c.seen||0)};
@@ -6747,7 +6769,7 @@ function narrPrompt(arr){
   const rec=(arr||[]).filter(m=>m&&m.narr&&m.role==='assistant').slice(-3).map(m=>String(m.content||'').trim()).filter(x=>x.length>2);
   return NARR_PROMPT+'旁白必须前后一致：你此刻在做什么、在哪里、手里拿着什么、看着什么，都要延续此前旁白和聊天里已经交代的状态，不能前一条旁白写他在看房源、后一条又写成别的；状态确实变了，要写出变化的过程（例如「他退出页面，换成了……」）。用户问到你在做什么、看什么时，你说的话和新写的旁白都必须与最近的旁白一致。不要无端编造屏幕内容、手里物品这类容易被追问的具体细节，没把握就写得笼统一些。'+(rec.length?'\n你最近写过的旁白（按时间顺序，状态必须延续）：\n'+rec.map(x=>'· '+x).join('\n'):'')}
 const NARR_PROMPT='【线上旁白已开启】messages 数组里，除普通聊天消息外，可以穿插旁白条目，写成对象 {"narr":"旁白内容"}：用第三人称描写你的动作、神态、语气、心理或周围环境，每条都必须写出主语：用你的名字或「他/她」，提到用户时用用户的名字，不要省略主语，不要写成没有主语的碎句（例如：他低头笑了一下，指尖在屏幕上停了很久），每条 10-40 字，不要加括号，不要写成台词。旁白一律使用简体中文书写，不受「输出语言」设置影响，也不需要翻译。旁白要自然穿插，通常 1-2 条，不要每次都出现。用户发来的以 [旁白] 开头的内容是用户的动作或神态描写，请当作剧情自然地回应。';
-const trMsgPrompt=lang=>'【随消息附带译文】翻译已开启：messages 里的每条聊天消息都必须写成对象 {"text":"消息原文","tr":"译成「'+lang+'」的译文"}，不要再写成普通字符串；需要引用时可再加 quote 字段。译文要保留语气和表情符号；如果原文本身已经是「'+lang+'」，tr 原样重复原文。tr 只是给用户点开查看的译文，不要在 text 里夹带翻译或括号注释。旁白条目 {"narr":"…"} 不需要 tr。'+cantoneseTranslationRule(lang);
+const trMsgPrompt=lang=>'【随消息附带译文】翻译已开启：messages 里的每条聊天消息都必须写成对象 {"text":"消息原文","tr":"译成「'+lang+'」的译文"}，不要再写成普通字符串；需要引用时可再加 quote 字段。译文要保留语气和表情符号；如果原文本身已经是'+translationLanguageName(lang)+'，tr 原样重复原文。tr 只是给用户点开查看的译文，不要在 text 里夹带翻译或括号注释。旁白条目 {"narr":"…"} 不需要 tr。'+cantoneseTranslationRule(lang);
 async function gen(){
   const redoNote=window.__redoNote||'';window.__redoNote='';
   const p=P(cur),h=S.chats[cur],gid=cur;setBusy(1);const el=bub({role:'assistant',content:'···'},-1,1,0);THK={cid:gid,el};
@@ -8018,7 +8040,7 @@ function callSys(C){
 function trRule(C){
  const cc=CC(C.pid),to=cc.trTo||'简体中文',out=(cc.trOut||[]);
  if(cc.trOn&&out.length)return '\n【翻译格式】你这次通话要使用「'+out.join('、')+'」说话。每一句话后面紧跟 ||| 再写该句的'+to+'译文，格式：原文 ||| 译文。每个换行分出来的短句都要带译文。'+cantoneseTranslationRule(to);
- return '\n【翻译格式】如果你这次说的话不是简体中文（包括粤语和混合语言），每一句后面紧跟 ||| 再写该句的'+(to==='简体中文'?'简体中文':to)+'译文，格式：原文 ||| 译文；如果你说的是简体字书面普通话，就完全不要写 |||。'+cantoneseTranslationRule(to);
+ return '\n【翻译格式】每句独立判断。原句不是'+translationLanguageName(to)+'时，在该句后用 ||| 分隔原文和'+to+'译文；原句已是'+translationLanguageName(to)+'时，省略 ||| 和译文。'+cantoneseTranslationRule(to);
 }
 function splitTr(t){const m=String(t).split(/\s*(?:\|\|\||｜｜｜)\s*/);return[m[0].trim(),(m.slice(1).join(' ')||'').trim()]}
 function cleanReply(raw){
@@ -8053,8 +8075,7 @@ async function respond(){
  }
 }
 async function speak(C,raw,tok,gap){
- const [text,translation]=splitTr(raw);if(!text)return;
- const tr=usableTranslation(text,translation,CC(C.pid).trTo||'简体中文')?translation:'';
+ const [text,tr]=splitTr(raw);if(!text)return;
  let src=null;
  if(gap){C.typing=true;logPaint()}
  if(vOn()){try{src=await makeVoice(text)}catch(e){if(!C.vWarn){C.vWarn=1;toast('语音合成失败，已改为文字：'+(e&&e.message||e))}}}
@@ -9116,7 +9137,7 @@ function langPick(o){
 /* translation */
 async function translateMsg(text,lang){
  const sec=S.cfg.secondaryKey&&(S.cfg.secondaryBase||S.cfg.base),cfg=sec?{base:S.cfg.secondaryBase||S.cfg.base,key:S.cfg.secondaryKey,model:S.cfg.secondaryModel||S.cfg.model,temp:.2}:Object.assign({},S.cfg,{temp:.2});
- return await ask([{role:'system',content:'你是一个只输出译文的翻译引擎。把用户给出的文本翻译成「'+lang+'」。保留原有的语气、表情符号和换行；原文里已经是「'+lang+'」的部分保持原样；不要解释，不要添加引号或任何额外内容。'+cantoneseTranslationRule(lang)},{role:'user',content:text}],null,{},cfg);
+ return await ask([{role:'system',content:'你是一个只输出译文的翻译引擎。把用户给出的文本翻译成「'+lang+'」。保留原有的语气、表情符号和换行；原文里已经是'+translationLanguageName(lang)+'的部分保持原样；不要解释，不要添加引号或任何额外内容。'+cantoneseTranslationRule(lang)},{role:'user',content:text}],null,{},cfg);
 }
 function trBoxHTML(m){return '<div class="tr-box">'+(m.trLoading?'翻译中…':m.trErr?'翻译失败：'+esc(m.trErr):esc(m.tr||''))+'</div>'}
 function trRender(i){const m=(S.chats[cur]||[])[i],row=$('#msgs .r[data-i="'+i+'"]');if(!row||!m)return;const old=row.querySelector('.tr-box');if(old)old.remove();if(m.trOpen)row.querySelector('.col').insertAdjacentHTML('beforeend',trBoxHTML(m))}
@@ -9124,8 +9145,9 @@ async function trToggle(i){
  const cc=CC(cur),m=S.chats[cur][i],lang=cc.trTo||'简体中文',pid=cur;
  if(m.trOpen){m.trOpen=false;trRender(i);save();return}
  m.trOpen=true;
- if(m.trLang===lang&&usableTranslation(m.content,m.tr,lang)){trRender(i);save();return}
- if(!S.cfg.key){m.trOpen=false;return toast('请先在设置里填写 API Key')}
+ if(m.trLoading){trRender(i);return}
+ if(m.trLang===lang&&usableTranslation(m.content,m.tr,lang)){m.trErr='';trRender(i);save();return}
+ if(!(S.cfg.key||(S.cfg.secondaryKey&&(S.cfg.secondaryBase||S.cfg.base)))){m.trOpen=false;return toast('请先在设置里填写 API Key')}
  m.trLoading=1;m.trErr='';trRender(i);
  try{const tr=String(await translateMsg(m.content,lang)).trim();if(!usableTranslation(m.content,tr,lang))throw new Error('模型没有返回有效的译文');m.tr=tr;m.trLang=lang}catch(e){m.trErr=e.message||'请求失败'}
  m.trLoading=0;save();if(cur===pid)trRender(i);
@@ -10191,10 +10213,9 @@ function dyParse(raw){
 function dyCtx(p,pid,n,at=Date.now()){const h=(S.chats[pid]||[]).filter(m=>!m.t||m.t<=at),recent=h.filter(m=>!m.recalled&&m.content).slice(-n).map(m=>(m.role==='user'?(S.me.name||'用户'):p.name)+'：'+String(m.content).slice(0,120)).join('\n');return{base:build(p,h)[0].content,recent:recent||'（暂无聊天记录）',now:new Date(at).toLocaleString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long',hour:'2-digit',minute:'2-digit'})}}
 const DY_TRANSLATE='译文一律使用中国大陆通用的书面普通话和简体字。'+cantoneseTranslationRule()+' 保留第一人称、专有名称和原文段落。红线、荧光标记分别用 [[红:对应译文]]、[[蓝:对应译文]] 放到对应片段。';
 const dyCantonese=s=>hasCantoneseText(dyPlain(s));
-const dyTranslationText=s=>dyPlain(s).replace(/[\s\p{P}\p{S}]/gu,'').toLowerCase();
 function dyTranslationValid(content,tr){
- const a=dyTranslationText(content),b=dyTranslationText(tr);
- return !!b&&a!==b&&(!dyCantonese(content)||!dyCantonese(tr));
+ const original=dyPlain(content),translated=dyPlain(tr),plain=translationComparisonText(translated);
+ return !!plain&&translationComparisonText(original)!==plain&&usableTranslation(original,translated);
 }
 async function dyTranslate(title,content,cfg){
  if(!cfg.key)throw new Error('请先在设置里填写 API 密钥');
